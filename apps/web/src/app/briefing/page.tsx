@@ -336,7 +336,7 @@ export default async function BriefingPage() {
             .join(' · ') || DATA_SOURCE_NOTE}
         </p>
         <p>
-          <Link href="/ops">每日巡检 / 异常队列</Link> · <Link href="/">数据底座状态</Link>
+          <Link href="/ops">每日巡检 / 异常队列</Link> · <Link href="/status">数据底座状态</Link>
         </p>
       </footer>
     </main>

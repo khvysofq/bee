@@ -1,8 +1,19 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
+const repoRoot = path.dirname(fileURLToPath(import.meta.url));
+
 export default defineConfig({
+  resolve: {
+    // 仅重写 apps/web 源码使用的 "@/…" 别名；用正则避免误伤 "@bee/…" 包名。
+    alias: [{ find: /^@\//, replacement: `${path.join(repoRoot, 'apps/web', 'src')}/` }],
+  },
+  // LandingView.tsx / TraceNumber.tsx 含 JSX；Vite 8 用 oxc 转换（tsconfig 的 jsx:preserve 是给 Next 的，
+  // 这里覆盖为 automatic runtime，让渲染冒烟测试能在 node 环境把 JSX 编译掉）。
+  oxc: { jsx: { runtime: 'automatic' } },
   test: {
-    include: ['packages/*/tests/**/*.test.ts'],
+    include: ['packages/*/tests/**/*.test.ts', 'apps/web/tests/**/*.test.ts'],
     environment: 'node',
     testTimeout: 30_000,
     hookTimeout: 120_000,

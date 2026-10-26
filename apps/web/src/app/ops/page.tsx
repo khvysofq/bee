@@ -198,7 +198,7 @@ export default async function OpsPage() {
 
       <footer className="brief-foot">
         <p>
-          <Link href="/briefing">← 返回每日简报</Link> · <Link href="/">数据底座状态</Link>
+          <Link href="/briefing">← 返回每日简报</Link> · <Link href="/status">数据底座状态</Link>
         </p>
         <p className="muted">
           巡检记录落在 <code>pipeline_run</code>（kind=maintenance，幂等键 ops_inspection:日期）；异常处理落在{' '}

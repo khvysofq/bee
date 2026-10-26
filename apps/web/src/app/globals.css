@@ -68,3 +68,666 @@ code {
   padding: 1px 5px;
   font-size: 12.5px;
 }
+
+/* ============================================================
+   GUA-26（P0-6）落地页样式：全部收敛在 .lp-root 命名空间下，
+   /briefing、/ops、/status 既有视觉零改动。
+   涨跌配色沿用国内行情习惯：红涨 ▲ / 绿跌 ▼ / 灰平 ◆。
+   ============================================================ */
+
+.lp-root {
+  margin: 0;
+  background: #f7f7f5;
+  color: #1d1d1f;
+}
+
+.lp-hero {
+  background: linear-gradient(135deg, #12331f 0%, #1d5c33 55%, #2c7a45 100%);
+  color: #f4f7f2;
+  padding: 56px 24px 48px;
+}
+
+.lp-hero-inner {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.lp-eyebrow {
+  margin: 0 0 10px;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.lp-title {
+  margin: 0 0 12px;
+  font-size: clamp(28px, 5vw, 42px);
+  line-height: 1.2;
+  color: inherit;
+}
+
+.lp-value-prop {
+  margin: 0 0 20px;
+  font-size: clamp(15px, 2.4vw, 18px);
+  line-height: 1.7;
+  opacity: 0.92;
+  max-width: 640px;
+}
+
+.lp-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 0 0 26px;
+  font-size: 13.5px;
+  opacity: 0.92;
+}
+
+.lp-hero-meta strong {
+  font-size: 15px;
+}
+
+.lp-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+}
+
+.lp-cta {
+  display: inline-block;
+  background: #f5c518;
+  color: #1d1d1f;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 12px 22px;
+  border-radius: 10px;
+  text-decoration: none;
+}
+
+.lp-cta:hover {
+  background: #ffd84d;
+}
+
+.lp-cta-secondary {
+  display: inline-block;
+  color: #f4f7f2;
+  font-size: 15px;
+  padding: 12px 22px;
+  border-radius: 10px;
+  border: 1px solid rgba(244, 247, 242, 0.55);
+  text-decoration: none;
+}
+
+.lp-cta-secondary:hover {
+  background: rgba(244, 247, 242, 0.12);
+}
+
+.lp-body {
+  max-width: 1008px;
+  margin: 0 auto;
+  padding: 24px 24px 40px;
+}
+
+.lp-fixture {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  background: #fff7e0;
+  border: 1px solid #e8c96a;
+  border-left: 5px solid #d9a520;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  margin: 0 0 12px;
+}
+
+.lp-stats-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  background: #eef6ee;
+  border: 1px solid #bcd8bc;
+  border-left: 5px solid #2c7a45;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  margin: 0 0 12px;
+}
+
+.lp-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(272px, 1fr));
+  gap: 16px;
+  margin: 20px 0 8px;
+}
+
+.lp-card {
+  background: #fff;
+  border: 1px solid #e3e3e0;
+  border-radius: 14px;
+  padding: 18px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.lp-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lp-card-head h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.lp-card-more {
+  font-size: 12.5px;
+  color: #2c7a45;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.lp-card-more:hover {
+  text-decoration: underline;
+}
+
+.lp-price {
+  margin: 6px 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.lp-unit {
+  font-size: 13px;
+  color: #6b6b70;
+}
+
+.lp-range {
+  margin: 0;
+  font-size: 12.5px;
+  color: #6b6b70;
+  font-variant-numeric: tabular-nums;
+}
+
+.lp-rep {
+  margin: 0;
+  font-size: 12.5px;
+  color: #6b6b70;
+}
+
+.lp-changes {
+  display: flex;
+  gap: 18px;
+  margin: 8px 0 2px;
+}
+
+.lp-change-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lp-change-label {
+  font-size: 12px;
+  color: #6b6b70;
+}
+
+.lp-change {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.lp-change-up {
+  color: #c22f2f;
+}
+
+.lp-change-down {
+  color: #1d7a3d;
+}
+
+.lp-change-flat {
+  color: #6b6b70;
+}
+
+.lp-change-none {
+  color: #b0b0b4;
+  font-weight: 400;
+}
+
+.lp-spark {
+  margin-top: 4px;
+}
+
+.lp-spark svg {
+  display: block;
+  width: 100%;
+}
+
+.lp-spark-line {
+  stroke: #8a8a8e;
+}
+
+.lp-spark-up .lp-spark-line {
+  stroke: #c22f2f;
+}
+
+.lp-spark-down .lp-spark-line {
+  stroke: #1d7a3d;
+}
+
+.lp-spark-dot {
+  fill: #8a8a8e;
+}
+
+.lp-spark-up .lp-spark-dot {
+  fill: #c22f2f;
+}
+
+.lp-spark-down .lp-spark-dot {
+  fill: #1d7a3d;
+}
+
+.lp-spark-dot-last {
+  stroke: #fff;
+  stroke-width: 1;
+}
+
+.lp-spark-range {
+  display: block;
+  font-size: 11.5px;
+  color: #8a8a8e;
+  margin-top: 2px;
+}
+
+.lp-spark-empty {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #b0b0b4;
+}
+
+.lp-card-foot {
+  margin: auto 0 0;
+  padding-top: 10px;
+  border-top: 1px dashed #ececea;
+  font-size: 11.5px;
+  color: #8a8a8e;
+}
+
+.lp-card-empty {
+  margin: 12px 0;
+  font-size: 13px;
+  color: #6b6b70;
+}
+
+.lp-empty {
+  background: #fff;
+  border: 1px solid #e3e3e0;
+  border-radius: 14px;
+  padding: 20px;
+  margin: 20px 0;
+  font-size: 14px;
+}
+
+.lp-empty h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+.lp-entry {
+  background: #12331f;
+  color: #f4f7f2;
+  border-radius: 14px;
+  padding: 28px 24px;
+  margin: 24px 0;
+  text-align: center;
+}
+
+.lp-entry h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  color: inherit;
+}
+
+.lp-entry p {
+  margin: 0 auto 18px;
+  max-width: 620px;
+  font-size: 14px;
+  line-height: 1.8;
+  opacity: 0.9;
+}
+
+.lp-ai-label {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid #e3e3e0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  color: #6b6b70;
+  margin: 16px 0;
+}
+
+.lp-ai-label p {
+  margin: 0;
+}
+
+.lp-tag {
+  flex: none;
+  background: #eee;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+}
+
+.lp-footer {
+  border-top: 1px solid #e3e3e0;
+  margin-top: 20px;
+  padding-top: 18px;
+  font-size: 12.5px;
+  color: #6b6b70;
+  line-height: 1.8;
+}
+
+.lp-footer h2 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: #1d1d1f;
+}
+
+.lp-footer p {
+  margin: 0 0 10px;
+}
+
+.lp-footer-sources,
+.lp-footer-policy,
+.lp-footer-links {
+  font-size: 12px;
+}
+
+.lp-footer a {
+  color: #2c7a45;
+}
+
+/* —— 溯源交互（TraceNumber）在落地页内的呈现；仅在 .lp-root 下生效 —— */
+
+.lp-root .lp-trace-price {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 30px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #12331f;
+  cursor: pointer;
+  border-bottom: 2px dashed #9db8a4;
+  line-height: 1.15;
+}
+
+.lp-root .lp-trace-price:hover {
+  color: #2c7a45;
+  border-bottom-color: #2c7a45;
+}
+
+.lp-root .lp-trace-inline {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.lp-root .trace-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 20, 14, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 60;
+  padding: 0;
+}
+
+.lp-root .trace-panel {
+  background: #fff;
+  color: #1d1d1f;
+  width: min(760px, 100%);
+  max-height: 86vh;
+  overflow-y: auto;
+  border-radius: 16px 16px 0 0;
+  padding: 20px 22px 28px;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.25);
+}
+
+.lp-root .trace-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.lp-root .trace-eyebrow {
+  margin: 0 0 2px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: #2c7a45;
+}
+
+.lp-root .trace-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.lp-root .trace-close {
+  flex: none;
+  background: #f2f2f0;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.lp-root .trace-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  margin: 10px 0 6px;
+}
+
+.lp-root .trace-kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 16px;
+  margin: 8px 0 12px;
+  padding: 12px 14px;
+  background: #fafaf8;
+  border: 1px solid #ececea;
+  border-radius: 10px;
+}
+
+.lp-root .trace-kv dt {
+  font-size: 11.5px;
+  color: #8a8a8e;
+  margin-bottom: 2px;
+}
+
+.lp-root .trace-kv dd {
+  margin: 0;
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+
+.lp-root .trace-price {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.lp-root .trace-note,
+.lp-root .trace-muted {
+  font-size: 12.5px;
+  color: #6b6b70;
+}
+
+.lp-root .trace-error {
+  font-size: 13px;
+  color: #c22f2f;
+}
+
+.lp-root .trace-observation {
+  border: 1px solid #e3e3e0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 10px 0;
+  background: #fff;
+}
+
+.lp-root .trace-observation header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.lp-root .trace-panel .tag,
+.lp-root .lp-tag {
+  background: #eef2ee;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+.lp-root .trace-trail {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #ececea;
+}
+
+.lp-root .trace-trail-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: #8a8a8e;
+}
+
+.lp-root .trace-trail ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.lp-root .trace-trail pre {
+  background: #f6f6f4;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 11px;
+  overflow-x: auto;
+}
+
+.lp-root .verdict-pass {
+  color: #1d7a3d;
+  font-weight: 600;
+}
+
+.lp-root .verdict-flag,
+.lp-root .verdict-needs_human {
+  color: #b07810;
+  font-weight: 600;
+}
+
+.lp-root .verdict-isolate,
+.lp-root .verdict-reject {
+  color: #c22f2f;
+  font-weight: 600;
+}
+
+.lp-root .trace-archive-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #2c7a45;
+  font-weight: 600;
+}
+
+.lp-root .trace-contributions {
+  margin: 6px 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.lp-root .inline-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #2c7a45;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.lp-root .trace-drill {
+  border-top: 1px solid #ececea;
+  margin-top: 12px;
+  padding-top: 8px;
+}
+
+.lp-root .trace-drill h3 {
+  font-size: 14px;
+  margin: 6px 0;
+}
+
+.lp-root .trace-panel h3 {
+  font-size: 14px;
+  margin: 12px 0 6px;
+}
+
+/* 移动端：卡片单列堆叠，弹窗全屏友好 */
+@media (max-width: 640px) {
+  .lp-hero {
+    padding: 40px 18px 34px;
+  }
+
+  .lp-body {
+    padding: 18px 14px 32px;
+  }
+
+  .lp-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .lp-root .trace-backdrop {
+    align-items: stretch;
+  }
+
+  .lp-root .trace-panel {
+    max-height: 92vh;
+    border-radius: 14px 14px 0 0;
+  }
+
+  .lp-hero-actions .lp-cta,
+  .lp-hero-actions .lp-cta-secondary {
+    display: block;
+    text-align: center;
+  }
+}
