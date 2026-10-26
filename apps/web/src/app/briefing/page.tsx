@@ -63,7 +63,7 @@ export default async function BriefingPage() {
 
   if (error) {
     return (
-      <main className="container">
+      <main className="container container-narrow">
         <h1>每日行情简报</h1>
         <div className="error">
           <p>简报数据读取失败：{error}</p>

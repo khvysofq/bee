@@ -126,12 +126,11 @@ function CategoryCard(props: { category: LandingCategory }) {
             </TraceNumber>
             <span className="lp-unit">元/吨</span>
           </p>
-          <p className="lp-range">
-            区间 {fmt(quote.valueLow)} – {fmt(quote.valueHigh)} · {quote.priceTypeLabel}
-          </p>
-          <p className="lp-rep">
+          {/* GUA-29：区间与口径合并为一行 micro meta（卡片 7 层信息 → 4 层） */}
+          <p className="lp-card-meta">
             {quote.specName} · {quote.regionName}
-            {quote.regionLevel === 'city' ? '（城市）' : '（市场）'} · 报价日 {quote.quoteDate}
+            {quote.regionLevel === 'city' ? '（城市）' : '（市场）'} · {quote.priceTypeLabel} · 区间{' '}
+            {fmt(quote.valueLow)} – {fmt(quote.valueHigh)} · 报价日 {quote.quoteDate}
           </p>
           <div className="lp-changes">
             <div className="lp-change-cell">
@@ -164,29 +163,29 @@ export function LandingView(props: { data: LandingData }) {
 
   return (
     <main className="lp-root">
+      {/* GUA-29：hero 降饱和改浅色大留白，品牌眉题移入全站导航，标题即第一层级 */}
       <div className="lp-hero">
         <div className="lp-hero-inner">
-          <p className="lp-eyebrow">bee · 再生物资行情</p>
           <h1 className="lp-title">再生材料行情每日简报</h1>
           <p className="lp-value-prop">
             {categoryNames || '再生物资'}每日定档报价一屏速览 —— 每个数字都可溯源到原始存档。
           </p>
-          <p className="lp-hero-meta">
+          <div className="lp-hero-meta">
             <strong>报价日 {data.latestQuoteDate ?? '暂无'}</strong>
             <span>数据截止 {fmtDateTime(data.dataCutoffAt)}</span>
             <span>
               {data.stats.categoriesWithQuotes}/{data.stats.categoryCount} 品类有报价 · {data.stats.quoteCount} 条已发布定档 ·{' '}
               {data.stats.sourceCount} 个来源
             </span>
-          </p>
-          <p className="lp-hero-actions">
+          </div>
+          <div className="lp-hero-actions">
             <a className="lp-cta" href="/briefing">
               查看完整行情简报（逐数溯源）→
             </a>
             <a className="lp-cta-secondary" href="#lp-cards">
               今日品类速览
             </a>
-          </p>
+          </div>
         </div>
       </div>
 
@@ -228,7 +227,7 @@ export function LandingView(props: { data: LandingData }) {
             完整简报按品类 × 规格 × 地域列出全部已发布定档报价；点击任意价格 / 中值 / 涨跌数字，
             可展开「定档报价 → 贡献观测 → 原始存档」的完整溯源链。
           </p>
-          <a className="lp-cta" href="/briefing">
+          <a className="btn btn-inverse" href="/briefing">
             进入每日行情简报 →
           </a>
         </section>

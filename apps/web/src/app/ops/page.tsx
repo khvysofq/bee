@@ -28,7 +28,7 @@ export default async function OpsPage() {
 
   if (error) {
     return (
-      <main className="container">
+      <main className="container container-narrow">
         <h1>每日巡检 / 异常队列</h1>
         <div className="error">
           <p>运维数据读取失败：{error}</p>

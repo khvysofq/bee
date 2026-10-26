@@ -1,0 +1,129 @@
+/* ============================================================
+   bee design tokens（GUA-29 视觉改版 v1）—— 全站唯一样式源头。
+
+   设计概念：「让数字成为唯一的色彩」。
+   界面主体是低饱和的暖纸墨色系（paper / ink / line），
+   交互色收敛为一个克制的石板蓝；高注意力的红与绿只保留给
+   行情语义 —— 涨=红、跌=绿（中国市场惯例，铁律，不得反转）。
+   合规标识（来源署名 / 免责声明 / 口径标注 / FIXTURE）使用
+   不低于 --color-ink-500 的正文级对比度，视觉降噪不降可读性。
+
+   规则：任何页面 CSS 的颜色 / 字号 / 间距 / 圆角 / 阴影
+   必须引用本文件变量；布局性数值（容器宽度、栅格、1px 发丝线）
+   也在此登记为 layout tokens，页面里不允许出现散落的 magic number。
+   ============================================================ */
+
+:root {
+  /* ---------- 色彩：纸与墨（低饱和暖中性） ---------- */
+  --color-paper: #f6f5f1;          /* 页面底色：暖纸 */
+  --color-paper-deep: #efeee8;     /* 深一档纸色：沉底区块 / code */
+  --color-surface: #ffffff;        /* 卡片 / 表格 / 弹层表面 */
+  --color-surface-tint: #fbfaf7;   /* 极浅暖白：hero 渐层起点 */
+
+  --color-line: #e5e4dd;           /* 发丝分隔线 / 卡片描边 */
+  --color-line-strong: #d5d4cb;    /* 强调描边 / 表格头底线 */
+
+  --color-ink-900: #1f2320;        /* 标题 / 主按钮底：近黑墨 */
+  --color-ink-800: #2c312d;        /* 墨色 hover 态 */
+  --color-ink-700: #3c413d;        /* 正文 */
+  --color-ink-500: #666c67;        /* 次级文字（合规文案最低对比档） */
+  --color-ink-400: #8a908b;        /* meta / 标签 / 弱化说明 */
+  --color-ink-300: #adb2ad;        /* 占位 / 禁用 / 装饰 */
+  --color-on-ink: #f5f4ef;         /* 墨底上的反白文字 */
+  --color-on-ink-muted: #b9bdb6;   /* 墨底上的次级文字 */
+  --color-scrim: rgba(31, 35, 32, 0.45); /* 弹层遮罩（墨色半透明） */
+
+  /* ---------- 色彩：交互（唯一非语义彩色，克制石板蓝） ---------- */
+  --color-accent: #33566e;
+  --color-accent-strong: #26435a;
+  --color-accent-soft: #edf1f4;
+  --color-accent-line: #c9d5dd;
+
+  /* ---------- 色彩：行情语义（铁律：涨=红 / 跌=绿 / 平=灰） ---------- */
+  --color-up: #b4443c;             /* 涨：低饱和砖红 */
+  --color-up-soft: #f8eeec;
+  --color-down: #337a55;           /* 跌：低饱和松绿 */
+  --color-down-soft: #ecf3ee;
+  --color-flat: var(--color-ink-500);
+
+  /* ---------- 色彩：状态 / 提示 ---------- */
+  --color-warn-text: #7d611c;      /* FIXTURE 等 caution 文案 */
+  --color-warn-soft: #f8f2e0;
+  --color-warn-line: #e0d3a9;
+  --color-error-text: #9d3a33;
+  --color-error-soft: #f9efee;
+  --color-error-line: #e5c8c4;
+  --color-ok-text: var(--color-down);
+  --color-ok-soft: var(--color-down-soft);
+
+  /* ---------- 字体：三档排版节奏（标题 / 正文 / 数字） ---------- */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC',
+    sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono',
+    Consolas, 'Noto Sans Mono CJK SC', monospace;
+
+  /* 字号阶（1.2 模数，收敛全站散落的 11.5/12.5/13.5/14.5） */
+  --text-xs: 12px;                 /* micro：标签 / 溯源脚注 */
+  --text-sm: 13px;                 /* small：meta / 表格附注 */
+  --text-base: 14px;               /* 表格与工具页正文 */
+  --text-md: 15px;                 /* 阅读正文 */
+  --text-lg: 17px;                 /* 导语 / 卡片标题 */
+  --text-xl: 20px;                 /* 区块标题 h2 */
+  --text-2xl: 24px;                /* 页面标题（工具页） */
+  --text-3xl: 30px;                /* 页面标题（营销页） */
+  --text-4xl: 34px;                /* 价格锚点 */
+  --text-5xl: 44px;                /* hero display */
+
+  /* 行高 */
+  --leading-tight: 1.25;
+  --leading-snug: 1.45;
+  --leading-normal: 1.7;
+  --leading-relaxed: 1.85;
+
+  /* 字重 */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* 字距 */
+  --tracking-eyebrow: 0.14em;      /* 小体例大写字母 */
+  --tracking-tight: -0.015em;      /* display 标题收拢 */
+  --tracking-num: 0.01em;
+
+  /* ---------- 间距阶（4px 基数） ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+  --space-10: 64px;
+  --space-11: 80px;
+  --space-12: 96px;
+
+  /* ---------- 圆角（收敛为三档 + 胶囊） ---------- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* ---------- 阴影（纸墨体系下阴影必须极轻） ---------- */
+  --shadow-xs: 0 1px 2px rgba(31, 35, 32, 0.05);
+  --shadow-sm: 0 1px 3px rgba(31, 35, 32, 0.07), 0 1px 2px rgba(31, 35, 32, 0.04);
+  --shadow-md: 0 6px 24px rgba(31, 35, 32, 0.08);
+  --shadow-overlay: 0 -8px 40px rgba(31, 35, 32, 0.2);
+  --shadow-focus: 0 0 0 3px rgba(51, 86, 110, 0.25);
+
+  /* ---------- 布局（结构性数值统一登记，页面不散落） ---------- */
+  --width-wide: 1080px;            /* 全站主容器 */
+  --width-content: 720px;          /* 窄阅读容器（/status） */
+  --width-hero-copy: 660px;        /* hero 文案行宽 */
+  --hairline: 1px;                 /* 发丝线 */
+  --hairline-thick: 2px;
+  --z-overlay: 60;
+}

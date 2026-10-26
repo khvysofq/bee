@@ -19,7 +19,7 @@ export default async function HomePage() {
 
   if (error) {
     return (
-      <main className="container">
+      <main className="container container-narrow">
         <h1>bee · 再生材料行情每日简报</h1>
         <div className="error">
           <p>行情数据读取失败：{error}</p>

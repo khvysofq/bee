@@ -47,8 +47,9 @@ export default async function StatusPage() {
   }
 
   return (
-    <main className="container">
-      <h1>bee · 数据底座状态</h1>
+    <main className="container container-narrow">
+      <p className="eyebrow">bee · 运维</p>
+      <h1>数据底座状态</h1>
       <p className="sub">
         规范化报价库（品类 × 规格/等级 × 地域 × 日期 × 来源 × 校验状态）· P0-1 骨架
       </p>
@@ -60,7 +61,7 @@ export default async function StatusPage() {
           </p>
         </div>
       ) : (
-        <table>
+        <table className="status-table">
           <tbody>
             {rows &&
               Object.entries(rows).map(([k, v]) => (
