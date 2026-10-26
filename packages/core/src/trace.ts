@@ -99,3 +99,50 @@ export const traceIndicatorResponseSchema = z.object({
 export type TraceQuoteResponse = z.infer<typeof traceQuoteResponseSchema>;
 export type TraceIndicatorResponse = z.infer<typeof traceIndicatorResponseSchema>;
 export type TraceObservation = z.infer<typeof traceObservationSchema>;
+
+/**
+ * PG 行 → trace 契约的转换层（DAW-33 评审修复）。
+ *
+ * pg 的 numeric 落到 node 侧一律是 string，timestamp 是 Date，标志位是 integer 0/1 ——
+ * 而上面的 zod 契约要 number / ISO 字符串 / boolean。本模块是**全库唯一**允许做
+ * 这组类型转换的地方（@bee/db client 的纪律：金额精度优先，禁止隐式 Number()）；
+ * 单元测试锁死两个方向：直接把 DB 行塞进 schema.parse 必须失败，过转换层必须通过。
+ * 聚合与比较运算仍在 DB 的 numeric 里做，这里只为「渲染给前端的溯源面板」做显式转换。
+ */
+
+/**
+ * numeric → number。null/undefined 透传为 null（契约的可空字段）；
+ * 不可解析的值是上游 bug，直接抛 TypeError 而不是悄悄变成 NaN。
+ */
+export function numericToNumber(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  // Number('') 与 Number('  ') 会得 0 而不是 NaN —— 空串不是合法的 numeric 值，显式拒绝。
+  if (typeof value === 'string' && value.trim() === '') {
+    throw new TypeError(`numeric 字段收到不可解析的值：${JSON.stringify(value)}`);
+  }
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) {
+    throw new TypeError(`numeric 字段收到不可解析的值：${JSON.stringify(value)}`);
+  }
+  return n;
+}
+
+/**
+ * 标志位（PG integer 0/1 或 boolean）→ boolean。
+ * 典型用途：derived_indicator.is_aggregate（1 → true，契约层 z.literal(true)）、
+ * unit.is_canonical、spec_grade.is_core。null 视为 false —— 调用方应在有值场景使用本函数。
+ */
+export function flagToBoolean(value: 0 | 1 | boolean | null | undefined): boolean {
+  if (value === 1 || value === true) return true;
+  if (value === 0 || value === false || value === null || value === undefined) return false;
+  throw new TypeError(`标志字段收到非法值：${JSON.stringify(value)}`);
+}
+
+/** timestamp / ISO 字符串 → 契约要求的 ISO 字符串（fetchedAt、at、quoteDate、basisDate）。无效输入直接抛。 */
+export function timestampToIso(value: Date | string): string {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw new TypeError(`时间字段收到不可解析的值：${JSON.stringify(value)}`);
+  }
+  return d.toISOString();
+}

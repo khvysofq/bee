@@ -71,11 +71,11 @@ const REGIONS: ReadonlyArray<{
   note?: string;
 }> = [
   { code: 'cn', nameCn: '中国', level: 'country' },
-  { code: 'cn-north', nameCn: '华北', level: 'macro_region' },
-  { code: 'cn-east', nameCn: '华东', level: 'macro_region' },
-  { code: 'cn-central', nameCn: '华中', level: 'macro_region' },
-  { code: 'cn-south', nameCn: '华南', level: 'macro_region' },
-  { code: 'cn-southwest', nameCn: '西南', level: 'macro_region' },
+  { code: 'cn-north', nameCn: '华北', level: 'macro_region', parent: 'cn' },
+  { code: 'cn-east', nameCn: '华东', level: 'macro_region', parent: 'cn' },
+  { code: 'cn-central', nameCn: '华中', level: 'macro_region', parent: 'cn' },
+  { code: 'cn-south', nameCn: '华南', level: 'macro_region', parent: 'cn' },
+  { code: 'cn-southwest', nameCn: '西南', level: 'macro_region', parent: 'cn' },
   { code: 'baoding', nameCn: '保定', level: 'city', parent: 'cn-north', note: '废钢集散重点候选' },
   { code: 'tianjin', nameCn: '天津', level: 'city', parent: 'cn-north' },
   { code: 'suzhou', nameCn: '苏州', level: 'city', parent: 'cn-east' },

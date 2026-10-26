@@ -1,7 +1,8 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { check, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { robotsStatusEnum, sourceStatusEnum, sourceTypeEnum } from './_enums';
-import { category, createdAt, pk } from './dictionary';
+import { category, createdAt, pk, specGrade } from './dictionary';
+import { region } from './region';
 
 /**
  * 来源注册表（交付物五）。每一个被采集的公开来源都必须先在这里登记：
@@ -40,6 +41,11 @@ export const source = pgTable(
   },
   (t) => [
     check('source_trust_range', sql`${t.trustWeight} BETWEEN 0 AND 100`),
+    /** 采集前置条件进 DB 层：robots 未核查/禁止的来源物理上不能置 active。 */
+    check(
+      'source_active_requires_robots_allowed',
+      sql`${t.status} <> 'active' OR ${t.robotsStatus} = 'allowed'`,
+    ),
     index('source_status_idx').on(t.status),
   ],
 );
@@ -59,9 +65,9 @@ export const sourceCoverage = pgTable(
       .notNull()
       .references(() => category.id),
     /** 空规格 = 该品类全规格。 */
-    specId: uuid('spec_id'),
+    specId: uuid('spec_id').references(() => specGrade.id),
     /** 空地域 = 该品类全地域。 */
-    regionId: uuid('region_id'),
+    regionId: uuid('region_id').references(() => region.id),
     trustWeightOverride: numeric('trust_weight_override', { precision: 4, scale: 1 }),
     createdAt: createdAt(),
   },
@@ -69,6 +75,11 @@ export const sourceCoverage = pgTable(
     unique('source_coverage_uq')
       .on(t.sourceId, t.categoryId, t.specId, t.regionId)
       .nullsNotDistinct(),
+    foreignKey({
+      name: 'source_coverage_category_spec_fk',
+      columns: [t.categoryId, t.specId],
+      foreignColumns: [specGrade.categoryId, specGrade.id],
+    }),
     check(
       'source_coverage_trust_range',
       sql`${t.trustWeightOverride} IS NULL OR ${t.trustWeightOverride} BETWEEN 0 AND 100`,

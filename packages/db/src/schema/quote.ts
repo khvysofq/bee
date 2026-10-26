@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   check,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -73,10 +74,17 @@ export const dailyQuote = pgTable(
   },
   (t) => [
     unique('daily_quote_key_uq').on(t.categoryId, t.specId, t.regionId, t.quoteDate, t.priceType),
+    foreignKey({
+      name: 'daily_quote_category_spec_fk',
+      columns: [t.categoryId, t.specId],
+      foreignColumns: [specGrade.categoryId, specGrade.id],
+    }),
     index('daily_quote_date_idx').on(t.quoteDate),
     index('daily_quote_lookup_idx').on(t.categoryId, t.regionId, t.quoteDate),
     check('daily_quote_range', sql`${t.valueLow} <= ${t.valueHigh} AND ${t.valueMid} BETWEEN ${t.valueLow} AND ${t.valueHigh}`),
     check('daily_quote_confidence_domain', sql`${t.confidence} IN ('high', 'medium', 'low')`),
+    check('daily_quote_has_contributions', sql`array_length(${t.contributingObservationIds}, 1) >= 1`),
+    check('daily_quote_source_count_positive', sql`${t.sourceCount} >= 1`),
   ],
 );
 
@@ -86,10 +94,21 @@ export const dailyQuote = pgTable(
  * 硬规则：本表 is_aggregate 恒为 true —— 从物理上杜绝「全国价」被当成观测值。
  * UI 合同：凡渲染本表数值，必须同时渲染「加工指标」标注与口径说明（method_json 里的口径人话版）。
  *
+ * kind ↔ region 层级绑定（触发器 bee_guard_indicator_region 强制）：
+ *   national_weighted_avg / national_median → country；
+ *   region_aggregate → macro_region；city_aggregate → city。
+ *
  * method_json 结构：
  *   { "weights": {"<market region id>": <权重>}, "basis": "按各市场 validated 定档价加权",
  *     "note": "人可读口径说明", "formula": "加权平均" }
  * 权重快照固化在行内 —— 权重以后怎么改，这条指标怎么算出来的永远说得清。
+ *
+ * 修正与快照（DAW-33 评审修复）：
+ *  - 贡献明细落在 indicator_contribution（FK 到 daily_quote，带 value_at_aggregation 聚合时值快照）
+ *    —— daily_quote 是可重算当前态，贡献行的值快照保证「这条指标算出来的时候各报价是多少」永远可还原。
+ *  - 本表维度字段（kind/category/spec/region/price_type/basis_date/is_aggregate）冻结，仅计算字段
+ *    （value/method_json/method_version/computation_run_id）可随重算更新；DELETE 禁止（守卫触发器）。
+ *  - 每条指标至少一条贡献（可延迟约束触发器，重算 = 同事务内删旧插新）。
  */
 export const derivedIndicator = pgTable(
   'derived_indicator',
@@ -101,7 +120,7 @@ export const derivedIndicator = pgTable(
       .references(() => category.id),
     /** 空规格 = 品类级混合口径（必须说明）。 */
     specId: uuid('spec_id').references(() => specGrade.id),
-    /** 只允许 country/macro_region/city 层级。 */
+    /** 只允许 country/macro_region/city 层级（按 kind 绑定，触发器强制）。 */
     regionId: uuid('region_id')
       .notNull()
       .references(() => region.id),
@@ -111,8 +130,6 @@ export const derivedIndicator = pgTable(
     methodJson: jsonb('method_json').notNull(),
     methodVersion: text('method_version').notNull(),
     computationRunId: uuid('computation_run_id').references(() => pipelineRun.id),
-    /** 参与聚合的定档报价 id 快照。 */
-    contributingQuoteIds: uuid('contributing_quote_ids').array().notNull(),
     isAggregate: integer('is_aggregate').notNull().default(1),
     createdAt: createdAt(),
   },
@@ -120,7 +137,47 @@ export const derivedIndicator = pgTable(
     unique('derived_indicator_key_uq')
       .on(t.kind, t.categoryId, t.specId, t.regionId, t.priceType, t.basisDate)
       .nullsNotDistinct(),
+    foreignKey({
+      name: 'derived_indicator_category_spec_fk',
+      columns: [t.categoryId, t.specId],
+      foreignColumns: [specGrade.categoryId, specGrade.id],
+    }),
     index('derived_indicator_date_idx').on(t.basisDate),
     check('derived_indicator_is_aggregate', sql`${t.isAggregate} = 1`),
+  ],
+);
+
+/**
+ * 指标贡献明细（DAW-33 评审修复，替代 derived_indicator.contributing_quote_ids 数组）：
+ * 一行 = 一个参与聚合的定档报价，携带 value_at_aggregation（聚合计算当时的值快照）。
+ *
+ * 不变量（DB 层强制）：
+ *  - (indicator_id, quote_id) 唯一 —— 去重；
+ *  - 贡献 quote 必须与指标同 category（spec/price_type 若指标有值则必须一致）、quote_date = basis_date、
+ *    且报价地域层级严格低于指标地域层级（聚合只能自下而上）—— 触发器 bee_indicator_contribution_dim_guard；
+ *  - value_at_aggregation 必须落在该 quote 的 [value_low, value_high] 区间内 —— 防篡改快照；
+ *  - 行不可 UPDATE（写定即冻结）；DELETE 仅用于重算流程（同事务删旧插新，且提交时每条指标至少
+ *    保留一条贡献 —— 可延迟约束触发器 bee_indicator_contribution_nonempty）。
+ */
+export const indicatorContribution = pgTable(
+  'indicator_contribution',
+  {
+    id: pk(),
+    indicatorId: uuid('indicator_id')
+      .notNull()
+      .references(() => derivedIndicator.id),
+    quoteId: uuid('quote_id')
+      .notNull()
+      .references(() => dailyQuote.id),
+    /** 聚合计算当时的定档值快照 —— daily_quote 可被重算覆盖，此值一旦写入即冻结。 */
+    valueAtAggregation: numeric('value_at_aggregation', { precision: 12, scale: 2 }).notNull(),
+    /** 该贡献在聚合中的权重（中位数等无权重方法可空）。 */
+    weight: numeric('weight', { precision: 8, scale: 6 }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique('indicator_contribution_uq').on(t.indicatorId, t.quoteId),
+    index('indicator_contribution_quote_idx').on(t.quoteId),
+    check('indicator_contribution_weight_positive', sql`${t.weight} IS NULL OR ${t.weight} > 0`),
   ],
 );

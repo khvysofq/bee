@@ -1,23 +1,23 @@
 # bee 数据底座数据模型（P0-1 定稿）
 
-状态：定稿 ｜ 依据：DAW-28 ｜ 日期：2026-10-26 ｜ 维护人：CTO
+状态：定稿 ｜ 依据：DAW-28（含 DAW-33 评审修复）｜ 日期：2026-10-26 ｜ 维护人：CTO
 配套：ADR 0001–0008（技术选型）｜ schema 实现：`packages/db/src/schema/`（以代码为准的单一事实源，本文是模型语义说明书）
 
 本文回答六个问题：数据怎么分层、口径怎么管、地域怎么对齐、来源怎么管、每个简报数字怎么点回原文、口径或规则变了怎么重放。
 
 ---
 
-## 1. 分层总览：六层二十一表
+## 1. 分层总览：六层二十二表
 
 ```
 字典层  category, spec_grade, unit, unit_conversion,
         term_mapping, region_mapping, impurity_rule,
         region, caliber_decision          ← 人裁口径；机器用字典
 来源层  source, source_coverage, source_event
-存档层  raw_fetch                         ← WORM：原文 + 元数据，永不改
+存档层  raw_content, raw_fetch            ← WORM：内容对象 + 抓取登记，永不改
 观测层  price_observation, validation_result
-        ← 事实层：值永不改；只有校验状态/被取代指针可变
-定档层  daily_quote, derived_indicator
+        ← 事实层：值永不改；只有校验状态/被取代指针可变；修正走 revision 链
+定档层  daily_quote, derived_indicator, indicator_contribution
         ← 当前态：可由观测层重算；「全国」只能在这一层出现
 运行层  pipeline_run, pipeline_step, agent_invocation, exception_queue
         ← 台账：谁、何时、什么版本、什么结果
@@ -27,7 +27,7 @@
 
 | 层 | 可变性 | 谁能写 | 修错的唯一方式 |
 |---|---|---|---|
-| 存档层 | 物理不可变（触发器禁 UPDATE/DELETE） | 抓取 step | 不可修；新抓取=新行 |
+| 存档层 | 物理不可变（触发器禁 UPDATE/DELETE；TRUNCATE 由语句级触发器拒绝 —— 行级守卫不拦 TRUNCATE，迁移 0001 补齐） | 抓取 step | 不可修；新抓取=新行 |
 | 观测层 | 值不可变；仅 `validation_status`、`superseded_by_id` 可变（触发器强制） | normalize/validate step | 新观测 + supersede 链，绝不改旧值 |
 | 定档层 | 可重算、可改状态（published→retracted） | aggregate/publish step | 重算覆盖 + 状态流转留痕 |
 | 运行层 | append-only（run/step/invocation 禁改） | 管线自身 | 不修，追加新记录 |
@@ -36,6 +36,18 @@
 
 **为什么这样切**：可信度 = 「事实（抓到的原文与当时的读数）永不被任何人改写」+「发布值永远可以重算与回放」。
 把「事实」与「当前态」分成两张表（price_observation vs daily_quote），两种需求都不用妥协。
+
+### 1.1 存档层：内容身份与抓取登记分离（raw_content / raw_fetch，DAW-33 P0-2）
+
+- `raw_content`：**内容对象**，一行 = 内容寻址存储里的一份文件。主键就是 sha256 —— 同内容全库一行，
+  `content_ref`（存储键）首次归档时确定、此后不作数（内容寻址：同 sha 同文件，见 ADR-0004 修订）。
+- `raw_fetch`：**抓取事件登记**，一行 = 一次抓取（URL、时间、HTTP 状态、指向 raw_content）。
+  同一内容被两次抓取 = raw_content 一行 + raw_fetch 两行 —— 登记天然允许重复，去重只发生在内容层；
+  修正/重放场景因此不会被内容唯一键挡住。
+
+写入顺序是硬约束：**先 raw_content 后 raw_fetch**（外键），管线里用 `registerRawFetch` 一步完成
+（`packages/pipeline/src/ledger.ts`，返回 `contentExisted` 提示调用方是否还需要写文件）。
+两表 WORM：UPDATE/DELETE/TRUNCATE 全部被触发器拒绝。
 
 ---
 
@@ -54,12 +66,17 @@ unique (category_id, spec_id, region_id, quote_date, price_type)
 
 每行 = 「某来源某页面上的某一行价目」，字段三组：
 
-- **指向存档**：`fetch_id → raw_fetch`，`source_row_index`（unique(fetch_id, source_row_index) 防重复抽取）；冗余 `fetched_at` 便于查询。
+- **指向存档**：`fetch_id → raw_fetch`（经 raw_fetch 再到 raw_content，见 §1.1）；复合外键 (fetch_id, source_id) 与 (fetch_id, fetched_at) 保证观测声称的来源/时间与登记行一致，不能跨源嫁接；`source_row_index`（unique(fetch_id, source_row_index, **revision**) —— 同一抓取同一行的修正按 revision 递增成链，重复抽取挡在唯一键上）。
 - **原始侧**（as-published，永不参与计算，只做审计）：`raw_text` 原文片段、`raw_value_low/high`、`raw_unit`、`raw_category_text/raw_spec_text/raw_region_text/raw_price_type_text`（页面用语原样）。
 - **规范化侧**（用于计算）：`category_id/spec_id/region_id/price_type`（映射前可空，状态 `pending_mapping`）、`norm_value_low/high`（统一 **元/吨**）、`unit_id`、`conversion_applied`（换算系数，如 ×1000 元/kg→元/吨）、`quote_date` 行情日。
-- **校验与版本**：`validation_status`、`superseded_by_id`（修正链）、`extract_version/normalizer_version/run_id`。
+- **校验与版本**：`validation_status`、`superseded_by_id`（修正链指针）、`revision`（链内序号）、`extract_version/normalizer_version/run_id`。
 
 CHECK 约束：raw/norm 值域下界 ≤ 上界；`validation_status='validated'` ⇒ 规范化字段全非空（半映射数据进不了定档层）。
+
+**修正链（触发器强制，DAW-33 P0-2）**：改值 = 新行（同 fetch 同 row_index、revision 递增）+ 旧行置 `superseded_by_id` 指向新行。
+守卫规则：后继 revision 必须**严格大于**前代（物理上无环）；后继必须同 fetch、同维度（品类/规格/地域/行情日/价格类型）——跨维度不是修正，是新观测；
+指针与状态绑定（置 superseded 必须同时有指针；反指/自指/同 revision 重复全部拒绝）。
+这是修正的**唯一合法写入路径**——旧值永远还在，审计链完整。
 
 ### 2.2 daily_quote —— 定稿后的「该维度当日价」
 
@@ -72,13 +89,30 @@ CHECK 约束：raw/norm 值域下界 ≤ 上界；`validation_status='validated'
 - 同城**采购价 vs 销售价** → 同 quote 键下两个 `price_type`，合法共存；
 - 超出唯一键（同维度同日同类型两条定档）→ 数据库 23505 直接拒绝，这是「定档」的物理含义。
 
-### 2.3 derived_indicator —— 「全国」只能在这里出现
+贡献观测完整性（延迟约束触发器，提交时强制）：`contributing_observation_ids` 全部真实存在、
+全部 `validated`、`count(distinct source_id) = source_count` —— 伪造贡献或虚报来源数不可能提交。
+
+### 2.3 derived_indicator 与 indicator_contribution —— 「全国」只能在这里出现
 
 `kind ∈ {national_weighted_avg, national_median, region_aggregate, city_aggregate}`，
 唯一键 `(kind, category_id, spec_id, region_id, price_type, basis_date)`。
 `is_aggregate` 恒为 1（CHECK 强制，插 0 报错）——**「全国均价」在物理上不可能是一条观测**，
-只能是明确加权口径下的派生值：`method_json` 冻结当次聚合的权重快照（用哪些城市、什么权重、当时的值），
-`contributing_quote_ids` 指向贡献的 city quote。简报中出现「全国」时必须带「加工指标」标记（数据已保证，展示为 P0-4 义务）。
+只能是明确加权口径下的派生值：`method_json` 冻结当次聚合的权重快照（用哪些城市、什么权重、当时的值）。
+简报中出现「全国」时必须带「加工指标」标记（数据已保证，展示为 P0-4 义务）。
+
+贡献明细（DAW-33 P0-4）不再是 `contributing_quote_ids` 数组，而是独立表 `indicator_contribution`
+（`indicator_id, quote_id, value_at_aggregation, weight`），触发器强制四件事：
+
+1. **维度一致**：贡献报价的品类/规格/价格类型与指标一致，`quote_date = basis_date`；
+   报价层级必须**严格低于**指标层级（market < city < macro_region < country —— city 聚合只吃市场报价，
+   大区聚合吃城市/市场报价，全国指标吃其下任意层），「引用同级或越级报价」在物理上写不进去。
+2. **值在界内**：`value_at_aggregation` 必须落在该报价 `[value_low, value_high]` 区间。
+3. **写定冻结**：明细禁 UPDATE；重算 = **同一事务内删旧插新**（延迟非空约束两端强制 ——
+   空贡献的指标、无指标归属的明细都提交不了，因此重算不存在中间空窗）。
+4. **指标维度冻结**：指标定档后除值/方法/计算 run 外不可改、不可删 —— 口径变了走重算或新指标，
+   不走改维度。
+
+补一条量纲：`(indicator_id, quote_id)` 唯一 —— 同一报价对同一指标只贡献一次。
 
 ---
 
@@ -88,7 +122,7 @@ CHECK 约束：raw/norm 值域下界 ≤ 上界；`validation_status='validated'
 |---|---|---|
 | `category` | 品类命名（废钢/废铜/废铝/废纸/废塑料） | `code` 唯一（如 `steel_scrap`）；`status` draft/active/retired |
 | `spec_grade` | 规格与等级（统一 kind=spec/grade） | 唯一(category_id, code)；`quality_tier`、`is_core`、`definition`（等级的文字定义，异议时的判据） |
-| `term_mapping` | 页面用语 → 标准条目 | raw 文本 → category/spec；`scope` global 或 source（CHECK 保证 scope⇔source_id 绑定）——**同名不同义按来源可各自映射**；`status` proposed/active/rejected，机器只能提 proposed |
+| `term_mapping` | 页面用语 → 标准条目 | raw 文本 → category/spec；`scope` global 或 source（CHECK 保证 scope⇔source_id 绑定）——**同名不同义按来源可各自映射**；`status` proposed/active/rejected，机器只能提 proposed；同一 (scope, 来源, raw 文本) 同时只允许一条 **active**（部分唯一表达式索引强制，DAW-33 P1-6）—— 映射确定性是物理保证，不靠约定；查找规则 **source 级 active 优先于 global** |
 | `unit` / `unit_conversion` | 计价单位与换算 | 唯一 canonical（元/吨）；换算表存因子（元/kg ×1000、万元/吨 ×10000）；**不在表内的单位拒绝换算**，走异常队列而不是猜 |
 | `impurity_rule` | 杂质扣减规则 | `rule_kind`：weight_percent（按杂重折价）/ price_per_ton（按元/吨扣）/ grade_downgrade（降级处理）；匹配优先级 **spec > category > 全局**，同层取生效期内最新；规则只描述扣减方式，`param_json` 存参数，`condition_text` 存适用条件（人可读） |
 | `region` / `region_mapping` | 地域树与页面对齐 | 见 §4 |
@@ -115,11 +149,19 @@ CHECK 约束：raw/norm 值域下界 ≤ 上界；`validation_status='validated'
 | price_observation.region_id | market 或 city |
 | daily_quote.region_id | market 或 city |
 | derived_indicator.region_id | country、macro_region、city |
+| derived_indicator 的 kind↔level 绑定 | national_* → country；region_aggregate → macro_region；city_aggregate → city（触发器强制 —— kind 的语义就是它挂的层级，「全国指标挂城市」写不进去） |
 
 即：**报价永远落在具体市场/城市；全国/大区只可能是派生指标**（§2.3 的物理化）。
 「全国」= aggregate by construction，不是一条被标记的报价 —— 这比「加个 is_national 布尔」强：加布尔可以忘标，触发器不可绕过。
 
-页面用语对齐：`region_mapping`（raw_region_text → region_id）同 term_mapping 逻辑，proposed→active 由人确认。
+树结构纪律（触发器强制，DAW-33 P0-3）：
+- **阶梯**：parent 必须恰是下一级（market→city→macro_region→country），跨级、反向、自环全部拒绝；
+- **单根**：全库最多一行 `level='country'`（部分唯一索引）——「全国」有且只有一个；
+- **被引用冻结**：已被观测/定档/指标/映射/覆盖或子节点引用的 region，`level` 与 `parent_id` 不可改、不可删 ——
+  地域树重组是口径决策（caliber_decision + 重算），不是一条 UPDATE。
+
+页面用语对齐：`region_mapping`（raw_region_text → region_id）同 term_mapping 逻辑，proposed→active 由人确认；
+同一 (scope, 来源, raw 文本) 仅一条 active（部分唯一表达式索引），source 级 active 优先于 global。
 
 ---
 
@@ -149,15 +191,21 @@ ToS/robots 的处理顺序：注册（paused）→ robots 检查记录 → 人�
      └→ contributing_observation_ids → price_observation ×N
          每条给出：
           · url（来自 raw_fetch）
-          · fetched_at + content_sha256
+          · fetched_at + content_sha256（经 raw_fetch 指向 raw_content）
           · raw_text（页面原文字段原样） + norm 值 + conversion_applied
           · 该观测全部 validation_result（谁/什么规则/什么版本/什么结论）
  └→ derived_indicator 时另有：
       · method_json（当次权重快照）
-      · contributing_quote_ids（当时各城市值 value_at_aggregation）
+      · indicator_contribution 逐条贡献（quote_id + value_at_aggregation + weight，
+        每条再各自点回报价 → 观测 → 原文）
 ```
 
 任何人（包括外部质疑者）问「这个数哪来的」：给 quote_id → 接口逐层展开 → 原文 URL + 抓取时间 + 内容指纹 + 原文字符串 + 存档查看器链接（`/raw/{fetch_id}`，P0-4）。**没有一环靠记忆或口头解释。**
+
+契约转换层（DAW-33 P1）：pg 的 numeric 到 node 侧是 string、timestamp 是 Date、标志位是 0/1，
+而 trace 契约（zod）要 number / ISO 字符串 / boolean。`packages/core/src/trace.ts` 的
+`numericToNumber / flagToBoolean / timestampToIso` 是**全库唯一**的转换通道，单元测试双向锁定
+（DB 行直塞 schema 必须失败、过转换层必须通过）—— 精度纪律（禁止隐式 Number()）与渲染需要的 number 形态在这里显式和解。
 
 ### 6.2 版本钉（replay 的前提）
 
@@ -181,21 +229,42 @@ model、prompt_version + prompt_sha、input/output 原文、latency。
 红线「LLM 数字不进报价表」的结构性保障：数字唯一合法入口是 observation 的 raw→norm 链，而该链必挂 raw_fetch；
 管线层（P0-3）另加断言：每条进入定档的观测必须有 fetch_id。
 
+### 6.5 归属一致性（复合外键，DAW-33 P1-5）
+
+「A 引用 B 的同时声称属于 C」式的归属伪造，在 schema 层由复合外键拒绝（断链即 23503）：
+
+- `price_observation (fetch_id, source_id)` → raw_fetch、`(fetch_id, fetched_at)` → raw_fetch —— 观测不能跨源/跨时间嫁接登记；
+- `(category_id, spec_id)` → spec_grade —— price_observation / daily_quote / derived_indicator / term_mapping / impurity_rule / source_coverage 各自的规格必须真属于其品类；
+- `agent_invocation (run_id, step_id)` → pipeline_step —— 调用留痕不能跨 run 嫁接到别人的 step；
+- `region_mapping / source_coverage` 的 region 引用真实 region 行（不再只是自由文本）。
+
+支撑这些复合外键的 UNIQUE 约束在迁移 0001 里**先于 FK 创建**（drizzle-kit 生成的段序不保证这一点）。
+
 ---
 
 ## 7. 运行层台账（`pipeline_run` / `pipeline_step` / `exception_queue`）
 
+- `pipeline_run`：三版本钉（§6.2）+ 台账纪律（触发器强制，DAW-33 P1-7）——
+  状态机 `pending→running→succeeded|failed|partial`、终态冻结（不可再改、不可重复 finish）、
+  append-only（禁 DELETE/TRUNCATE）、`idempotency_key` 部分唯一（pg-boss at-least-once 重投复用既有 run，不重复建）。
 - `pipeline_step`：每步（fetch/extract/normalize/validate/aggregate/publish/notify）入/出引用（id-only，jsonb）+ 状态 + 错误摘要。**没有台账记录的步骤 = 没发生过。**
+  同样状态机 + 终态冻结 + append-only；`(run_id, seq)` 唯一防同 run 重复建步；`step_version` 落库
+  （@bee/core step 契约的 version —— 回放依据从 run 级三 pin 细化到 step 级）。
 - `exception_queue`：四类异常（validation/caliber/source/pipeline）统一入队，`priority` + `assigned_to`（agent:xxx / human:xxx）；这是**人机协作的唯一界面** —— 人只看这里和 caliber_decision，不碰日常数据。
+- 代码层配套（`packages/pipeline/src/ledger.ts`）：startRun/startStep 幂等复用（同键/同 seq 返回 `reused`）、
+  守护式 finishRun/finishStep（双重 finish / pending 越级 → 带 code 的 LedgerError，不穿透触发器）、
+  `withStep`（开步登记 → 业务原子写 → 结果留痕的三段提交，失败业务回滚但失败留痕不被吞）、
+  `registerRawFetch`（内容先行登记，同内容首见 content_ref 作数）。
 - 管线 step 契约与硬约束见 `packages/pipeline/README.md`（P0-3 的实现约定）。
 
 ## 8. 表清单（迁移产物与本文对应）
 
 字典：category, spec_grade, term_mapping, region_mapping, impurity_rule, unit, unit_conversion, caliber_decision, region
 来源：source, source_coverage, source_event
-存档：raw_fetch
+存档：raw_content, raw_fetch
 观测：price_observation, validation_result
-定档：daily_quote, derived_indicator
+定档：daily_quote, derived_indicator, indicator_contribution
 运行：pipeline_run, pipeline_step, agent_invocation, exception_queue
 
-（共 21 张；schema 代码 `packages/db/src/schema/`，迁移 `packages/db/migrations/`，种子 `packages/db/scripts/seed.ts` 演示最小可跑的字典内容。）
+（共 22 张；schema 代码 `packages/db/src/schema/`，迁移 `packages/db/migrations/`（0000 生成 + 0001 评审修复，
+不回写历史迁移），种子 `packages/db/scripts/seed.ts` 演示最小可跑的字典内容。）

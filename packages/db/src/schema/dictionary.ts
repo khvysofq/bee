@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, date, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { check, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { dictStatusEnum, mappingStatusEnum } from './_enums';
 
 /** 主键列：全库统一 uuid v4（gen_random_uuid，Postgres 16 原生）。 */
@@ -59,6 +59,8 @@ export const specGrade = pgTable(
   },
   (t) => [
     unique('spec_grade_category_code_uq').on(t.categoryId, t.code),
+    /** (category_id, id) 唯一 —— 供各业务表做「spec 必须挂在该 category 下」的复合外键引用。 */
+    unique('spec_grade_category_id_uq').on(t.categoryId, t.id),
     check('spec_grade_kind_domain', sql`${t.kind} IN ('spec', 'grade')`),
     index('spec_grade_category_idx').on(t.categoryId),
   ],
@@ -92,6 +94,11 @@ export const termMapping = pgTable(
       'term_mapping_scope_source',
       sql`(${t.scope} = 'global' AND ${t.sourceId} IS NULL) OR (${t.scope} = 'source' AND ${t.sourceId} IS NOT NULL)`,
     ),
+    foreignKey({
+      name: 'term_mapping_category_spec_fk',
+      columns: [t.categoryId, t.specId],
+      foreignColumns: [specGrade.categoryId, specGrade.id],
+    }),
     index('term_mapping_lookup_idx').on(t.sourceId, t.rawCategoryText, t.rawSpecText),
     index('term_mapping_status_idx').on(t.status),
   ],
@@ -100,29 +107,9 @@ export const termMapping = pgTable(
 /**
  * 地域文本映射（口径字典 · 四之通道）。来源原文的「华东/鲁南/临沂兰山」→ 规范地域 id。
  * 与品名映射分表而非混用一张多态表：两套语义、两套索引，显式优于聪明。
+ *
+ * 表定义在 region.ts（依赖 region 表；dictionary 与 region 之间避免循环引用）。
  */
-export const regionMapping = pgTable(
-  'region_mapping',
-  {
-    id: pk(),
-    scope: text('scope').notNull().default('global'),
-    sourceId: uuid('source_id'),
-    rawRegionText: text('raw_region_text').notNull(),
-    regionId: uuid('region_id').notNull(),
-    confidence: numeric('confidence', { precision: 3, scale: 2 }),
-    status: mappingStatusEnum('status').notNull().default('proposed'),
-    note: text('note'),
-    decidedBy: text('decided_by'),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    check(
-      'region_mapping_scope_source',
-      sql`(${t.scope} = 'global' AND ${t.sourceId} IS NULL) OR (${t.scope} = 'source' AND ${t.sourceId} IS NOT NULL)`,
-    ),
-    index('region_mapping_lookup_idx').on(t.sourceId, t.rawRegionText),
-  ],
-);
 
 /**
  * 杂质扣减规则（口径字典 · 三）。
@@ -157,6 +144,15 @@ export const impurityRule = pgTable(
       'impurity_rule_kind_domain',
       sql`${t.ruleKind} IN ('weight_percent', 'price_per_ton', 'grade_downgrade')`,
     ),
+    check(
+      'impurity_rule_period_valid',
+      sql`${t.effectiveTo} IS NULL OR ${t.effectiveFrom} IS NULL OR ${t.effectiveTo} >= ${t.effectiveFrom}`,
+    ),
+    foreignKey({
+      name: 'impurity_rule_category_spec_fk',
+      columns: [t.categoryId, t.specId],
+      foreignColumns: [specGrade.categoryId, specGrade.id],
+    }),
     index('impurity_rule_scope_idx').on(t.categoryId, t.specId),
   ],
 );
@@ -185,7 +181,10 @@ export const unitConversion = pgTable(
     note: text('note'),
     createdAt: createdAt(),
   },
-  (t) => [unique('unit_conversion_from_to_uq').on(t.fromUnitId, t.toUnitId)],
+  (t) => [
+    unique('unit_conversion_from_to_uq').on(t.fromUnitId, t.toUnitId),
+    check('unit_conversion_factor_positive', sql`${t.factor} > 0`),
+  ],
 );
 
 /**

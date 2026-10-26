@@ -16,14 +16,27 @@ fetch（按 source 表调度，错峰+限速）
 
 ## 硬约束（违反即 P0-3 验收失败）
 
-1. **每一步都过台账**：`startRun/startStep/finishStep/finishRun`，input/output 只传 id 引用。
-2. **原始内容不可变**：抓取内容写内容寻址存储后只登记 `raw_fetch`，任何后续步骤不改不删。
-3. **观测值不可改**：修正 = 新观测 + `superseded_by_id`；DB 触发器已强制，代码不要试图绕过。
+1. **每一步都过台账**（`src/ledger.ts`，DB 触发器 + helper 双层强制）：用 `withStep` 包每步
+   （开步登记 → 业务原子写 → 结果留痕），input/output 只传 id 引用；
+   `startRun/startStep` 传幂等键（pg-boss job id / (run, seq)），at-least-once 重投会复用既有记录（`reused` 标志）；
+   `startStep` 必须带 `stepVersion`（@bee/core step 契约的 version）—— 按 step 版本回放的依据；
+   双重 finish / pending 越级 finish 抛 `LedgerError`（DB 触发器是最后一道防线，helper 先给可读错误）。
+2. **原始内容不可变**：抓取内容写内容寻址存储后用 `registerRawFetch` 登记 ——
+   内容先落 `raw_content`（同 sha 全库一行，首见 content_ref 作数），再落 `raw_fetch`（一行一次抓取），
+   顺序是外键硬约束；返回的 `contentExisted=false` 才需要写文件到 RAW_STORE_DIR。任何后续步骤不改不删。
+3. **观测值不可改**：修正 = 新观测（同 fetch 同行 revision 递增）+ `superseded_by_id`；DB 触发器已强制，代码不要试图绕过。
 4. **LLM 只判断、不产数**：Agent 输出可以是校验结论、映射建议、叙事草稿；
-   任何进入报价表的数字必须来自 `raw_fetch` 抽取链。`agent_invocation` 全量留痕。
+   任何进入报价表的数字必须来自 `raw_fetch` 抽取链。`agent_invocation` 全量留痕
+   （复合外键：run_id 与 step_id 同时给出时 step 必须属于该 run）。
 5. **校验隔离不进简报**：`isolated` / `needs_human` 观测不参与定档。
 6. **回放不写生产表**：`kind='replay'` 的 run 产出对照报告（`pipeline_step.output_refs.report_ref`），
    差异超出阈值的写 `exception_queue`；只有显式 `--writeback`（人工决策后）才落新观测走 supersede 链。
+7. **聚合贡献走明细表**：`derived_indicator` 的贡献报价逐条落 `indicator_contribution`
+   （维度一致、值在报价区间内、指标与明细**同一事务**写入 —— 延迟非空约束两端强制）；
+   重算 = 同事务内删旧插新，不做 UPDATE。
+
+台账契约的完整语义（状态机、幂等、冻结、崩溃窗口）见 `src/ledger.ts` 文件头注释与
+`docs/data-model.md` §7；回归测试 `tests/ledger.integration.test.ts`。
 
 ## 调度（ADR-0005）
 

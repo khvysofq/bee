@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   check,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -32,11 +33,16 @@ import { pipelineRun } from './pipeline';
  *  raw_*（原文怎么说的，永不改）→ 归一维度 id（category/spec/region/price_type，由映射解析后冻结）→ norm_*（规范值，元/吨）。
  *
  * 不变量（DB 层强制）：
- *  - (fetch_id, source_row_index) 唯一：同一次抓取里的行天然去重。
+ *  - (fetch_id, source_row_index, revision) 唯一：同一次抓取里的行天然去重；
+ *    修正/重放的新版本以 revision 递增落同一槽位（DAW-33 评审修复：修正链从此有合法写入路径）。
+ *  - 一致性（复合外键）：(fetch_id, source_id)、(fetch_id, fetched_at) 必须与 raw_fetch 对应行一致
+ *    —— 观测不许伪造来源或抓取时间；(category_id, spec_id) 必须是字典里真实的挂靠关系。
+ *  - supersede 链：superseded_by_id 非空 ⇔ validation_status='superseded'（CHECK 双向锁定）；
+ *    后继观测必须同源、同维度、revision 严格更大（触发器 bee_supersede_guard，防环、防跨口径替换）。
  *  - validation_status='validated' ⇒ 归一维度与规范值必须齐全（校验通过的东西必须可定档）。
- *  - 修改保护：值字段（raw_*、norm_*、维度 id、quote_date）UPDATE 一律禁止，仅允许
+ *  - 修改保护：值字段（raw_*、norm_*、维度 id、quote_date、revision）UPDATE 一律禁止，仅允许
  *    validation_status / superseded_by_id / 状态流转——迁移 SQL 中的触发器强制（bee_price_observation_guard）。
- *    修正 = 落新观测 + supersede 链，旧值永远可查。
+ *    修正 = 落新观测（revision+1）+ 旧行指向新行，旧值永远可查。
  */
 export const priceObservation = pgTable(
   'price_observation',
@@ -52,6 +58,8 @@ export const priceObservation = pgTable(
     fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
     /** 同一次抓取内的行序号（一个页面往往是一张价目表）。 */
     sourceRowIndex: integer('source_row_index').notNull(),
+    /** 同槽位版本号：首版 1，修正/重放的新版本 revision+1；链上严格递增（触发器强制，物理防环）。 */
+    revision: integer('revision').notNull().default(1),
 
     // —— 原文层（as-published，永不修改）——
     /** 原文价格表述，如 "2350-2400" 或 "华东废钢稳中个跌"。 */
@@ -93,7 +101,22 @@ export const priceObservation = pgTable(
     createdAt: createdAt(),
   },
   (t) => [
-    unique('price_observation_fetch_row_uq').on(t.fetchId, t.sourceRowIndex),
+    unique('price_observation_fetch_row_uq').on(t.fetchId, t.sourceRowIndex, t.revision),
+    foreignKey({
+      name: 'price_observation_fetch_source_fk',
+      columns: [t.fetchId, t.sourceId],
+      foreignColumns: [rawFetch.id, rawFetch.sourceId],
+    }),
+    foreignKey({
+      name: 'price_observation_fetch_time_fk',
+      columns: [t.fetchId, t.fetchedAt],
+      foreignColumns: [rawFetch.id, rawFetch.fetchedAt],
+    }),
+    foreignKey({
+      name: 'price_observation_category_spec_fk',
+      columns: [t.categoryId, t.specId],
+      foreignColumns: [specGrade.categoryId, specGrade.id],
+    }),
     index('price_observation_key_idx').on(t.categoryId, t.regionId, t.quoteDate),
     index('price_observation_status_idx').on(t.validationStatus),
     index('price_observation_source_date_idx').on(t.sourceId, t.quoteDate),
@@ -112,6 +135,15 @@ export const priceObservation = pgTable(
         AND ${t.priceType} IS NOT NULL AND ${t.quoteDate} IS NOT NULL
         AND ${t.normValueLow} IS NOT NULL AND ${t.normValueHigh} IS NOT NULL AND ${t.unitId} IS NOT NULL
       )`,
+    ),
+    check('price_observation_revision_positive', sql`${t.revision} >= 1`),
+    check(
+      'price_observation_superseded_points',
+      sql`${t.supersededById} IS NULL OR ${t.validationStatus} = 'superseded'`,
+    ),
+    check(
+      'price_observation_superseded_complete',
+      sql`${t.validationStatus} <> 'superseded' OR ${t.supersededById} IS NOT NULL`,
     ),
   ],
 );

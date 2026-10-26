@@ -2,7 +2,7 @@ import { index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-cor
 import { checkKindEnum, verdictEnum } from './_enums';
 import { createdAt, pk } from './dictionary';
 import { priceObservation } from './observation';
-import { pipelineRun } from './pipeline';
+import { agentInvocation, pipelineRun } from './pipeline';
 
 /**
  * 校验留痕（交付物六 · 校验半层）：append-only。
@@ -33,7 +33,7 @@ export const validationResult = pgTable(
     performedByRef: text('performed_by_ref').notNull(),
     runId: uuid('run_id').references(() => pipelineRun.id),
     /** Agent 调用留痕（llm_judgment 时关联，含模型/输入/输出全文）。 */
-    agentInvocationId: uuid('agent_invocation_id'),
+    agentInvocationId: uuid('agent_invocation_id').references(() => agentInvocation.id),
     /** 校验时使用的规则集版本（回放依据）。 */
     rulesVersion: text('rules_version'),
     createdAt: createdAt(),
