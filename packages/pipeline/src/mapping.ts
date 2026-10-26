@@ -14,12 +14,15 @@ const PRICE_TYPE_MAP: Record<string, PriceType> = {
   到厂价: 'ex_works',
   挂牌价: 'indicative',
   参考价: 'indicative',
+  本期价格: 'indicative',
 };
 
 export const UNIT_TEXT_TO_CODE: Record<string, string> = {
   '元/吨': 'CNY_per_ton',
+  吨: 'CNY_per_ton',
   '元/公斤': 'CNY_per_kg',
   '元/千克': 'CNY_per_kg',
+  千克: 'CNY_per_kg',
   '元/斤': 'CNY_per_jin',
   '万元/吨': 'CNY_wan_per_ton',
 };

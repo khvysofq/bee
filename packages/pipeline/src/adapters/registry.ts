@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { FixtureSourceAdapter } from './fixture';
+import { StatsSourceAdapter, type StatsAdapterOptions } from './stats';
 import type { SourceAdapter } from '../types';
 
 function fixturePath(file: string): string {
@@ -36,5 +37,14 @@ export function createFixtureRegistry(): Map<string, SourceAdapter> {
       fixturePath: fixturePath('open-cc0-sample.json'),
     }),
   ];
+  return new Map(adapters.map((adapter) => [adapter.code, adapter]));
+}
+
+/**
+ * 真实源注册表：fixture/CC0 + 国家统计局旬报。
+ * 回放必须能按 source.code 找到原适配器，因此默认注册全部实现；fetch 是否走网络由适配器决定。
+ */
+export function createSourceRegistry(options?: { stats?: StatsAdapterOptions }): Map<string, SourceAdapter> {
+  const adapters = [...createFixtureRegistry().values(), new StatsSourceAdapter(options?.stats)];
   return new Map(adapters.map((adapter) => [adapter.code, adapter]));
 }

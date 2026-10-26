@@ -5,6 +5,10 @@ import type { DailyQuoteRow, DerivedIndicatorRow } from './types';
 
 export const AGGREGATE_VERSION = 'aggregate@1.0.0';
 
+/** 统计局等「来源直发全国参考价」的定档口径前缀；页面与指标必须展示，禁止当成废料分档现货。 */
+export const ANCHOR_COVERAGE_NOTE =
+  '全国参考锚点价（原生品，非废料分档现货；区域分档暂缺）';
+
 function num(value: string | number | null): number | null {
   if (value === null) return null;
   const n = typeof value === 'number' ? value : Number(value);
@@ -63,6 +67,15 @@ export async function aggregateDailyQuotes(
     const sourceCount = new Set(group.map((row) => row.sourceId)).size;
     const method = sourceCount === 1 ? 'single_source' : 'median_multi_source';
     const valueMid = median(mids);
+    const groupSourceIds = [...new Set(group.map((row) => row.sourceId))];
+    const groupSources = await tx
+      .select({ id: dbSchema.source.id, fetcherKind: dbSchema.source.fetcherKind })
+      .from(dbSchema.source)
+      .where(inArray(dbSchema.source.id, groupSourceIds));
+    const isAnchorQuote = groupSources.length > 0 && groupSources.every((source) => source.fetcherKind === 'stats_bulletin');
+    const coverageNote = isAnchorQuote
+      ? `${ANCHOR_COVERAGE_NOTE}；来源：国家统计局旬报（全国口径）`
+      : `覆盖 ${sourceCount} 个来源；仅 validated 观测参与定档`;
     const [quote] = await tx
       .insert(dbSchema.dailyQuote)
       .values({
@@ -81,7 +94,7 @@ export async function aggregateDailyQuotes(
         rulesVersion: args.rulesVersion,
         computationRunId: args.runId,
         confidence: sourceCount >= 2 ? 'high' : 'medium',
-        coverageNote: `覆盖 ${sourceCount} 个来源；仅 validated 观测参与定档`,
+        coverageNote,
         status: 'draft',
       })
       .onConflictDoUpdate({
@@ -103,7 +116,7 @@ export async function aggregateDailyQuotes(
           rulesVersion: args.rulesVersion,
           computationRunId: args.runId,
           confidence: sourceCount >= 2 ? 'high' : 'medium',
-          coverageNote: `覆盖 ${sourceCount} 个来源；仅 validated 观测参与定档`,
+          coverageNote,
           updatedAt: new Date(),
         },
       })
@@ -145,22 +158,33 @@ export async function aggregateNationalIndicators(
     const weights: Record<string, number> = {};
     for (const quote of group) weights[quote.regionId] = weight;
 
+    const isAnchorIndicator = first.coverageNote?.startsWith(ANCHOR_COVERAGE_NOTE) ?? false;
+    const kind = isAnchorIndicator ? 'national_reference' : 'national_weighted_avg';
+    const methodJson = isAnchorIndicator
+      ? {
+          weights,
+          basis: '来源直接发布的全国参考价（单点，非本系统按城市聚合）',
+          note: '全国参考锚点价：原生品价格，不是废料分档现货价；区域分档暂缺。',
+          formula: '直接引用',
+        }
+      : {
+          weights,
+          basis: '按各参与城市当日定档价等权加权',
+          note: '加工指标，不是观测值；不可作为某地实际成交价引用',
+          formula: '加权平均',
+        };
+
     const [indicator] = await tx
       .insert(dbSchema.derivedIndicator)
       .values({
-        kind: 'national_weighted_avg',
+        kind,
         categoryId: first.categoryId,
         specId: first.specId,
         regionId: countryId,
         priceType: first.priceType,
         basisDate: first.quoteDate,
         value: money(value),
-        methodJson: {
-          weights,
-          basis: '按各参与城市当日定档价等权加权',
-          note: '加工指标，不是观测值；不可作为某地实际成交价引用',
-          formula: '加权平均',
-        },
+        methodJson,
         methodVersion: args.methodVersion ?? AGGREGATE_VERSION,
         computationRunId: args.runId,
         isAggregate: 1,
@@ -176,12 +200,7 @@ export async function aggregateNationalIndicators(
         ],
         set: {
           value: money(value),
-          methodJson: {
-            weights,
-            basis: '按各参与城市当日定档价等权加权',
-            note: '加工指标，不是观测值；不可作为某地实际成交价引用',
-            formula: '加权平均',
-          },
+          methodJson,
           methodVersion: args.methodVersion ?? AGGREGATE_VERSION,
           computationRunId: args.runId,
         },

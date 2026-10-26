@@ -78,6 +78,8 @@ export const quoteStatusEnum = pgEnum('quote_status', [
 export const indicatorKindEnum = pgEnum('indicator_kind', [
   'national_weighted_avg',
   'national_median',
+  /** 来源直接发布的全国参考价（如国家统计局旬报），不是本系统按城市聚合所得。 */
+  'national_reference',
   'region_aggregate',
   'city_aggregate',
 ]);

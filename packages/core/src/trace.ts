@@ -82,7 +82,7 @@ export const traceIndicatorResponseSchema = z.object({
   /** 加工指标必须自带「这是加工出来的」语义 —— 前端据此强制渲染加工指标标注与免责口径。 */
   indicator: z.object({
     id: z.string(),
-    kind: z.enum(['national_weighted_avg', 'national_median', 'region_aggregate', 'city_aggregate']),
+    kind: z.enum(['national_weighted_avg', 'national_median', 'national_reference', 'region_aggregate', 'city_aggregate']),
     categoryName: z.string(),
     regionName: z.string(),
     basisDate: z.string(),

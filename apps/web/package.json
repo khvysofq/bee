@@ -12,6 +12,7 @@
   "dependencies": {
     "@bee/core": "workspace:*",
     "@bee/db": "workspace:*",
+    "@bee/pipeline": "workspace:*",
     "drizzle-orm": "^0.45.4",
     "next": "^16.4.3",
     "pg": "^8.23.1",

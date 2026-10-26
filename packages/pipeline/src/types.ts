@@ -44,6 +44,14 @@ export interface ExtractedRow {
   rawPriceTypeText: string | null;
   quoteDate: string;
   observedAt: Date | null;
+  /** 来源原文的环比数字（as-published）；只进抽取工件，不参与规范化计算。 */
+  rawChangeValue?: number | null;
+  /** 来源原文的环比百分比（as-published，单位 %）。 */
+  rawChangePct?: number | null;
+  /** 来源原文的统计期文本，如「2026年10月中旬」。 */
+  rawPeriodText?: string | null;
+  /** 来源原文的分节文本，如「一、黑色金属」。 */
+  rawSectionText?: string | null;
 }
 
 /** 抽取工件（content-addressed；extract → normalize 之间只传 ref）。 */

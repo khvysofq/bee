@@ -7,11 +7,16 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "fixture": "tsx scripts/run-fixture.ts",
+    "stats": "tsx scripts/run-stats.ts"
   },
   "dependencies": {
     "@bee/core": "workspace:*",
     "@bee/db": "workspace:*",
     "drizzle-orm": "^0.45.4"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
   }
 }

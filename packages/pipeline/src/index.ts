@@ -10,4 +10,6 @@ export * from './aggregate';
 export * from './pipeline';
 export * from './replay';
 export * from './adapters/fixture';
+export * from './adapters/stats';
 export * from './adapters/registry';
+export * from './seed-stats';

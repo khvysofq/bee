@@ -3,7 +3,7 @@ import { dbSchema, type BeeDb } from '@bee/db';
 import type { StepRefs } from '@bee/core';
 import type { AgentReviewer } from './agent';
 import { createFixtureReviewer } from './agent';
-import { createFixtureRegistry } from './adapters/registry';
+import { createSourceRegistry } from './adapters/registry';
 import { buildExtractArtifact, readExtractArtifact, writeExtractArtifact } from './extract';
 import { computeDictionaryHash } from './mapping';
 import { normalizeRowsPreview } from './normalize';
@@ -67,7 +67,7 @@ function numberOrNull(value: string | null): number | null {
 export async function replayRun(options: ReplayOptions): Promise<ReplaySummary> {
   const db = options.db;
   const storeRoot = resolveRawStoreRoot(options.storeRoot);
-  const adapters = options.adapters ?? createFixtureRegistry();
+  const adapters = options.adapters ?? createSourceRegistry();
   const reviewer = options.reviewer ?? createFixtureReviewer();
   const rulesVersion = options.rulesVersion ?? RULES_VERSION;
   const [original] = await db.select().from(dbSchema.pipelineRun).where(eq(dbSchema.pipelineRun.id, options.originalRunId)).limit(1);

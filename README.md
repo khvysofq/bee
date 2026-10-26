@@ -6,6 +6,7 @@
 - **产品 MRD/PRD（研发基准）：[`docs/mrd-prd.md`](docs/mrd-prd.md)** —— 已批准 v1.0，来源 Paperclip DAW-27
 - **P0-1（DAW-28）**：技术选型决策记录 + 数据模型定稿 + 可本地起服务的仓库骨架
 - **P0-3（GUA-15）**：fixture/CC0 数据管线端到端（采集→归档→抽取→规范化→Agent 校验→定档/指标→回放）
+- **P0-5（GUA-20，v1 真实数据）**：接入国家统计局「流通领域重要生产资料市场价格」旬报，五品类原生品全国参考锚点；废料分档层继续用 fixture 占位
 - 数据模型全文：[`docs/data-model.md`](docs/data-model.md)
 - 技术选型决策记录（ADR）：[`docs/adr/`](docs/adr/)
 - 口径字典与公开来源调研：[`docs/DAW-29-calibration-dictionary-v1.md`](docs/DAW-29-calibration-dictionary-v1.md)
@@ -51,13 +52,26 @@ docker compose up -d postgres     # 1. 起 Postgres 16
 pnpm install                      # 2. 安装依赖
 pnpm db:migrate                   # 3. 应用迁移（packages/db/migrations）
 pnpm db:seed                      # 4. 种子口径字典草案（5 品类 + 地域骨架 + 元/吨）
-pnpm dev                          # 5. http://localhost:3000 —— 数据底座状态页
+pnpm data:stats                   # 5. 抓取最新一期统计局旬报（真实源；加 --snapshot 可离线回放）
+pnpm dev                          # 6. http://localhost:3000 —— 简报页 /briefing
 pnpm test                         # 验收测试（含「同一品类同城不同价」集成证明，需本地 Postgres）
 ```
 
-验证到什么程度算好：`pnpm test` 全绿（原有 7 组不变量集成测试 + P0-3 fixture 端到端：
+验证到什么程度算好：`pnpm test` 全绿（不变量集成测试 + P0-3 fixture 端到端 + P0-5 真实旬价端到端：
 采集/归档/抽取/规范化/Agent 校验/异常隔离/定档/加工指标/回放/幂等/合规闸门），
-状态页显示各表计数。
+简报页展示真实旬价并附「数据来源：国家统计局（流通领域重要生产资料市场价格）」与公报原文链接。
+
+## 真实源接入点（GUA-20 预留）
+
+- 适配器实现：`packages/pipeline/src/adapters/stats.ts` —— `fetch` 只取原文并交 WORM 归档，
+  `extract` 只做 HTML 表格确定性解析；禁止 LLM 生成数字。
+- 注册入口：`packages/pipeline/src/adapters/registry.ts` 的 `createSourceRegistry()`；未来付费源/第一方数据
+  实现同一个 `SourceAdapter` 接口后在此登记即可，管线主干、台账、校验、聚合不需要改。
+- 运行入口：`pnpm data:stats`（联网抓最新一期）；离线回放用
+  `pnpm --filter @bee/pipeline stats -- --snapshot <html> --document-url <url>`。
+  废料分档层继续由 `pnpm data:fixture` 占位，与真实源共用同一套接口。
+- 合规红线：展示层固定署名 + 公报原文链接；数值不得修改曲解；不得再授权下游转载；明确标注
+  「全国参考锚点价（原生品，非废料分档现货；区域分档暂缺）」。
 
 ## 核心设计一句话（红线）
 

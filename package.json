@@ -16,7 +16,9 @@
     "test:watch": "vitest",
     "db:generate": "pnpm --filter @bee/db generate",
     "db:migrate": "pnpm --filter @bee/db migrate",
-    "db:seed": "pnpm --filter @bee/db seed"
+    "db:seed": "pnpm --filter @bee/db seed",
+    "data:fixture": "pnpm --filter @bee/pipeline fixture",
+    "data:stats": "pnpm --filter @bee/pipeline stats"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

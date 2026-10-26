@@ -96,11 +96,15 @@ CHECK 约束：raw/norm 值域下界 ≤ 上界；`validation_status='validated'
 
 ### 2.3 derived_indicator 与 indicator_contribution —— 「全国」只能在这里出现
 
-`kind ∈ {national_weighted_avg, national_median, region_aggregate, city_aggregate}`，
+`kind ∈ {national_weighted_avg, national_median, national_reference, region_aggregate, city_aggregate}`，
 唯一键 `(kind, category_id, spec_id, region_id, price_type, basis_date)`。
 `is_aggregate` 恒为 1（CHECK 强制，插 0 报错）——**「全国均价」在物理上不可能是一条观测**，
 只能是明确加权口径下的派生值：`method_json` 冻结当次聚合的权重快照（用哪些城市、什么权重、当时的值）。
 简报中出现「全国」时必须带「加工指标」标记（数据已保证，展示为 P0-4 义务）。
+
+`national_reference` 专用于**来源直接发布的全国参考价**（GUA-20：国家统计局旬报），
+不是本系统按城市聚合所得；其 `method_json.formula` 固定为「直接引用」，且只允许挂 `country`
+地域节点，禁止与 `national_weighted_avg` 混用。
 
 贡献明细（DAW-33 P0-4）不再是 `contributing_quote_ids` 数组，而是独立表 `indicator_contribution`
 （`indicator_id, quote_id, value_at_aggregation, weight`），触发器强制四件事：
