@@ -22,6 +22,10 @@ fetch（按 source 表调度，错峰+限速）
    `startStep` 必须带 `stepVersion`（@bee/core step 契约的 version）—— 按 step 版本回放的依据，
    复用必须同 stepKind 同 stepVersion（换实现 = 换 seq 或升 stepVersion，否则 `idempotency_conflict`）；
    run/step 只能以 `pending` 落库（0002 守卫），`startRun/startStep` 内部完成 pending→running 认领；
+   **执行所有权（DAW-35 B1/B2）**：`claimed`（本调用是否认领成功）与 `reused` 是独立判别 ——
+   调用方以 `claimed` 决定是否执行（`if (!claimed) return;`），不从 `reused` 或新建身份推断执行权；
+   pending 自愈认领成功 → 照常执行（登记后认领前崩溃可恢复）；认领被并发 worker 抢走 →
+   `claimed:false` 拒绝执行；
    `withStep` 重投：succeeded → `replayed:true` **业务不重复执行**；running → `in_flight`；
    failed/skipped → `already_terminal`（都不会先执行业务再失败）；
    双重 finish / pending 越级 finish 抛 `LedgerError`（DB 触发器是最后一道防线，helper 先给可读错误）。

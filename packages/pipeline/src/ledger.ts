@@ -16,10 +16,16 @@ import type { StepKind, StepRefs } from '@bee/core';
  *    复用时必须同 stepKind 同 stepVersion —— 换实现 = 换 seq 或升 stepVersion，否则 idempotency_conflict；
  *  - stepVersion 落库 —— 按 step 版本回放的依据（@bee/core PipelineStep.version）。
  *
+ * 执行所有权（DAW-35 B1/B2 修复）：startRun/startStep 返回两个**独立**判别 ——
+ *  - `reused`：记录是否复用既有行（false = 本次新建），只描述台账行从哪来；
+ *  - `claimed`：本调用是否完成 pending→running 认领，即**业务能不能由本次调用执行**。
+ *    认领是守护式 UPDATE（WHERE status='pending'），并发只有一个赢家；认领落空 =
+ *    所有权在别的 worker 手里，本调用必须拒绝执行业务，而不是以「新建者」身份放行。
+ *
  * 用法（P0-3 实现管线时遵守）：
- *   const { run, reused } = await startRun(db, { kind: 'daily_collect', triggeredBy: 'schedule',
+ *   const { run, claimed } = await startRun(db, { kind: 'daily_collect', triggeredBy: 'schedule',
  *     pins, idempotencyKey: bossJobId });
- *   if (reused && run.status !== 'running') return;   // 重投的 run 已终态 → 直接跳过，不重复执行
+ *   if (!claimed) return;                      // 所有权不在本 worker（他人执行中 / 已终态）—— 不编排
  *   const outcome = await withStep(db,
  *     { runId: run.id, stepKind: 'fetch', seq: 1, stepVersion: fetchStep.version, inputRefs: { sourceId } },
  *     async (step, tx) => { …原子业务写，全部走 tx… });
@@ -28,13 +34,15 @@ import type { StepKind, StepRefs } from '@bee/core';
  *   await finishRun(db, run.id, { status: 'succeeded' });
  *
  * withStep 的提交时序（刻意为之，别合并）：
- *   ① startStep 单独提交 —— 先登记再干活，业务炸了台账上也有这一步；
+ *   ① startStep 单独提交 —— 先登记（并认领）再干活，业务炸了台账上也有这一步；
  *   ② 业务写在 db.transaction 里原子提交（fn 拿到的 tx 失败即整体回滚）；
  *   ③ 失败记录用根连接另起事务写 —— 业务事务已回滚，失败留痕不能被业务回滚吞掉。
- *   已知的崩溃窗口（可检测，交给 P0-3 的清扫任务）：
- *   ①后②前崩 = step 永远 running；②后③前崩 = 业务已提交但 step 仍 running。
- *   两个崩溃窗口都表现为重投命中 running 步 → withStep 抛 in_flight（不重复执行业务，
- *   等清扫任务裁决：补记终态或整 run 重放）。
+ *   崩溃窗口与可恢复性（重投到达时 startStep 会裁决）：
+ *   - ①登记提交后、认领前崩 → step 停在 pending → 重投**自愈认领继续执行**（业务从未开始过，
+ *     认领是业务的闸门，claimed=true 是安全的）；
+ *   - ①认领后、②前崩 → step 永远 running → 重投命中 in_flight（业务可能执行到一半，
+ *     重复执行 = 双写，交清扫任务裁决：补记终态或整 run 重放）；
+ *   - ②后③前崩 → 业务已提交但 step 仍 running → 同上，in_flight 交清扫裁决。
  */
 type TxCallback = Parameters<BeeDb['transaction']>[0];
 /** drizzle 事务句柄（db.transaction 回调的第一个参数）。withStep 的 fn 在这里做原子业务写。 */
@@ -74,6 +82,19 @@ export type WithStepOutcome<T> =
   | { step: PipelineStepRow; replayed: true; result?: undefined }
   | { step: PipelineStepRow; replayed: false; result: T };
 
+/**
+ * startRun 的结果（DAW-35 B1/B2 修复）：两个**独立**判别，见文件头「执行所有权」。
+ *  - `reused`：台账行是否复用既有记录（false = 本次新建）；
+ *  - `claimed`：本调用是否拿到 pending→running 认领 = **本次执行所有权**。
+ *    false = 所有权不在本 worker（他人已认领在途 / 已终态 / 认领竞争失败）——
+ *    调用方不得编排执行，只能按 run.status 决定跳过还是等清扫。
+ *    「reused:false + claimed:false」是合法组合：行是我建的，认领却被并发 worker 抢走。
+ */
+export type StartRunOutcome = { run: PipelineRunRow; reused: boolean; claimed: boolean };
+
+/** startStep 的结果，判别语义与 StartRunOutcome 相同（step 层）。 */
+export type StartStepOutcome = { step: PipelineStepRow; reused: boolean; claimed: boolean };
+
 export interface RunPins {
   gitSha: string;
   rulesVersion: string;
@@ -88,10 +109,10 @@ export async function startRun(
     configJson?: Record<string, unknown>;
     pins: RunPins;
     replayOfRunId?: string;
-    /** 调度幂等键（如 pg-boss job id）。同键已有 run 则复用；调用方须检查 reused 与 run.status。 */
+    /** 调度幂等键（如 pg-boss job id）。同键已有 run 则复用；调用方须检查 claimed 决定是否执行。 */
     idempotencyKey?: string;
   },
-): Promise<{ run: PipelineRunRow; reused: boolean }> {
+): Promise<StartRunOutcome> {
   // 状态机从 pending 起步（0002 起 DB 层强制 run 只能以 pending 落库）：
   // 先登记再认领 —— pending→running 的认领是守护式 UPDATE，竞争失败即拿到可读的现场。
   const values = {
@@ -113,10 +134,20 @@ export async function startRun(
       .returning();
     return claimed ?? null;
   };
+  /**
+   * 认领落空后的重读（DAW-35 B2）：并发 worker 在「我方 INSERT 提交后、认领发出前」抢走了
+   * pending→running —— 行不再是我的执行权。重读交还现场，claimed:false 告诉调用方不得编排执行。
+   */
+  const lostRace = async (runId: string): Promise<PipelineRunRow> => {
+    const [fresh] = await db.select().from(dbSchema.pipelineRun).where(eq(dbSchema.pipelineRun.id, runId));
+    return fresh!;
+  };
   if (!args.idempotencyKey) {
     const [pending] = await db.insert(dbSchema.pipelineRun).values(values).returning();
     const claimed = await claim(pending!.id);
-    return { run: claimed ?? (await reread(pending!.id)), reused: false };
+    return claimed
+      ? { run: claimed, reused: false, claimed: true }
+      : { run: await lostRace(pending!.id), reused: false, claimed: false };
   }
   // 部分唯一索引 pipeline_run_idempotency_uq（WHERE idempotency_key IS NOT NULL）——
   // PG 的 ON CONFLICT 推断部分索引时冲突目标必须带同样的谓词（drizzle 的 where 即该谓词）。
@@ -130,7 +161,9 @@ export async function startRun(
     .returning();
   if (inserted) {
     const claimed = await claim(inserted.id);
-    return { run: claimed ?? (await reread(inserted.id)), reused: false };
+    return claimed
+      ? { run: claimed, reused: false, claimed: true }
+      : { run: await lostRace(inserted.id), reused: false, claimed: false };
   }
   const [existing] = await db
     .select()
@@ -142,20 +175,16 @@ export async function startRun(
       'idempotency_conflict',
     );
   }
-  // 重投命中 pending（上次登记后、认领前崩溃）→ 自愈认领；命中 running/终态 → 原样返回，
-  // 由调用方按 run.status 决定跳过还是等清扫。
+  // 重投命中 pending（上次登记后、认领前崩溃）→ 自愈认领（DAW-35 B1：认领成功 = 所有权在手，
+  // reused 只标记记录复用，不再吞掉执行权）；认领竞争失败则重读现场、claimed:false。
   if (existing.status === 'pending') {
     const claimed = await claim(existing.id);
-    if (claimed) return { run: claimed, reused: true };
-    const [fresh] = await db.select().from(dbSchema.pipelineRun).where(eq(dbSchema.pipelineRun.id, existing.id));
-    return { run: fresh!, reused: true };
+    return claimed
+      ? { run: claimed, reused: true, claimed: true }
+      : { run: await lostRace(existing.id), reused: true, claimed: false };
   }
-  return { run: existing, reused: true };
-
-  async function reread(runId: string): Promise<PipelineRunRow> {
-    const [fresh] = await db.select().from(dbSchema.pipelineRun).where(eq(dbSchema.pipelineRun.id, runId));
-    return fresh!;
-  }
+  // 既有 running / 终态：所有权在别处 —— 原样返回，调用方按 run.status 裁决。
+  return { run: existing, reused: true, claimed: false };
 }
 
 export async function finishRun(
@@ -183,7 +212,7 @@ export async function finishRun(
 export async function startStep(
   db: BeeDbOrTx,
   args: { runId: string; stepKind: StepKind; seq: number; stepVersion?: string; inputRefs?: StepRefs },
-): Promise<{ step: PipelineStepRow; reused: boolean }> {
+): Promise<StartStepOutcome> {
   // 与 startRun 同理：只能以 pending 落库（0002 起 DB 层强制），再守护式认领 pending→running。
   const [inserted] = await db
     .insert(dbSchema.pipelineStep)
@@ -204,7 +233,14 @@ export async function startStep(
       .set({ status: 'running', startedAt: new Date() })
       .where(and(eq(dbSchema.pipelineStep.id, inserted.id), eq(dbSchema.pipelineStep.status, 'pending')))
       .returning();
-    return { step: claimed ?? inserted, reused: false };
+    // DAW-35 B2：认领落空 = 并发 worker 在我方 INSERT 提交后抢走了这一步 —— 不得以
+    // 「新建者」身份继续执行业务。重读现场（running）交还裁决权，claimed:false。
+    if (claimed) return { step: claimed, reused: false, claimed: true };
+    const [fresh] = await db
+      .select()
+      .from(dbSchema.pipelineStep)
+      .where(eq(dbSchema.pipelineStep.id, inserted.id));
+    return { step: fresh!, reused: false, claimed: false };
   }
   const [existing] = await db
     .select()
@@ -227,21 +263,23 @@ export async function startStep(
       'idempotency_conflict',
     );
   }
-  // 命中 pending（登记后、认领前崩溃）→ 自愈认领；认领竞争失败则重读现场。
+  // 命中 pending（登记后、认领前崩溃）→ 自愈认领（DAW-35 B1：认领成功 = 所有权在手，
+  // 业务从未开始过 —— 认领是业务的闸门）；认领竞争失败则重读现场、claimed:false。
   if (existing.status === 'pending') {
     const [claimed] = await db
       .update(dbSchema.pipelineStep)
       .set({ status: 'running', startedAt: new Date() })
       .where(and(eq(dbSchema.pipelineStep.id, existing.id), eq(dbSchema.pipelineStep.status, 'pending')))
       .returning();
-    if (claimed) return { step: claimed, reused: true };
+    if (claimed) return { step: claimed, reused: true, claimed: true };
     const [fresh] = await db
       .select()
       .from(dbSchema.pipelineStep)
       .where(eq(dbSchema.pipelineStep.id, existing.id));
-    return { step: fresh!, reused: true };
+    return { step: fresh!, reused: true, claimed: false };
   }
-  return { step: existing, reused: true };
+  // 既有 running / 终态：所有权在别处 —— 原样返回，由 withStep 按状态裁决。
+  return { step: existing, reused: true, claimed: false };
 }
 
 export async function finishStep(
@@ -278,25 +316,36 @@ export async function finishStep(
  * 无论成败，step 的终态记录都通过根连接落库，不受业务回滚影响。
  * fn 抛出的错误在失败留痕后**原样重抛**：由调用方（P0-3 的 run 编排）决定是中断 run 还是标记 partial。
  *
- * 重投语义（DAW-34 评审修复：绝不先执行业务再失败）：
- *  - 命中 succeeded 步 → 返回 replayed:true，fn **一次都不会执行**（幂等重放）；
- *  - 命中 running 步 → 抛 in_flight —— 崩溃窗口或真并发，业务有被执行中的可能，
- *    重复执行 = 双写风险，交给清扫任务裁决；
- *  - 命中 failed / skipped 步 → 抛 already_terminal，fn 不执行 —— 该步已死，
- *    重跑必须换 seq 走新步，或在重放 run 里重算。
+ * 重投语义（DAW-34 评审修复 + DAW-35 B1/B2）：**执行所有权只由 claimed 决定**，
+ * reused 只描述记录复用，绝不从它推断执行权（那正是 B1「pending 自愈误判在途」与
+ * B2「认领失手仍放行业务」的病根）：
+ *  - claimed=false 且 succeeded → 返回 replayed:true，fn **一次都不会执行**（幂等重放）；
+ *  - claimed=false 且 running → 抛 in_flight —— 崩溃窗口或真并发（含认领被并发 worker
+ *    抢走），业务可能正在别处执行，重复执行 = 双写风险，交给清扫任务裁决；
+ *  - claimed=false 且 failed / skipped → 抛 already_terminal，fn 不执行 —— 该步已死，
+ *    重跑必须换 seq 走新步，或在重放 run 里重算；
+ *  - claimed=true（含 pending 自愈认领）→ 本 worker 是唯一执行者，fn 正常执行。
  */
 export async function withStep<T>(
   db: BeeDb,
   args: { runId: string; stepKind: StepKind; seq: number; stepVersion?: string; inputRefs?: StepRefs },
   fn: (step: PipelineStepRow, tx: BeeTx) => Promise<T>,
 ): Promise<WithStepOutcome<T>> {
-  const { step, reused } = await startStep(db, args); // 提交 ①：先登记再干活
-  if (reused) {
+  const { step, claimed } = await startStep(db, args); // 提交 ①：先登记（认领）再干活
+  if (!claimed) {
     if (step.status === 'succeeded') return { step, replayed: true };
     if (step.status === 'running') {
       throw new LedgerError(
-        `step (${args.runId}, seq=${args.seq}) 正在执行中 —— at-least-once 重投命中在途步，` +
-          `业务可能正在别处执行，重复执行即双写风险；等其终态或交清扫任务裁决`,
+        `step (${args.runId}, seq=${args.seq}) 正在执行中 —— at-least-once 重投命中在途步` +
+          `（或认领被并发 worker 抢走），业务可能正在别处执行，重复执行即双写风险；` +
+          `等其终态或交清扫任务裁决`,
+        'in_flight',
+      );
+    }
+    if (step.status === 'pending') {
+      // 理论撕裂窗口：认领 UPDATE 落空、重读却仍 pending —— 保守拒绝，绝不执行。
+      throw new LedgerError(
+        `step (${args.runId}, seq=${args.seq}) 认领竞争失败且现场异常（仍 pending）—— 保守拒绝执行，请重试`,
         'in_flight',
       );
     }

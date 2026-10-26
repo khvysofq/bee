@@ -1,10 +1,14 @@
 /**
- * 台账 helper 集成测试（DAW-33 评审修复的代码层配套；DAW-34 复审补重投语义）。
+ * 台账 helper 集成测试（DAW-33 评审修复的代码层配套；DAW-34 复审补重投语义；
+ * DAW-35 复审补执行所有权 B1/B2）。
  *
  * DB 层的触发器/唯一约束（状态机、终态冻结、append-only、幂等索引、INSERT 只许 pending）
  * 已在 packages/db/tests/schema.integration.test.ts 的 M 组锁死 —— 这里锁 helper 本身的行为：
  *  - startRun/startStep：pending 落库 + 守护式认领（DB 触发器前的可读错误层）；
- *  - startRun 幂等复用（reused 标志）、stepVersion 落库（回放依据）；
+ *  - 执行所有权（DAW-35 B1/B2）：`claimed`（本调用是否认领成功 = 业务能否执行）与
+ *    `reused`（记录是否复用）是独立判别 —— pending 自愈认领成功必须继续执行（B1），
+ *    认领被并发 worker 抢走必须拒绝执行（B2，用独立会话做确定性竞争编排）；
+ *  - startRun 幂等复用、stepVersion 落库（回放依据）；
  *  - startStep 复用必须同 stepKind 同 stepVersion —— 换实现 = idempotency_conflict；
  *  - 守护式 finish：双重 finish / pending 越级 / 不存在 → 带 code 的可读 LedgerError；
  *  - withStep 重投语义（DAW-34 核心断言）：succeeded → replayed 且 fn 不执行；
@@ -14,12 +18,65 @@
  */
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
-import { createDb, dbSchema } from '@bee/db';
+import { and, eq } from 'drizzle-orm';
+import { createDb, dbSchema, type BeeDb } from '@bee/db';
 import { finishRun, finishStep, registerRawFetch, startRun, startStep, withStep } from '../src';
 
 const TEST_URL = process.env.BEE_TEST_DATABASE_URL ?? '';
 const db = createDb(TEST_URL);
+
+/**
+ * B2 竞争窗口的确定性编排（DAW-35 阻断项 2 的回归锁）：在 startStep/startRun
+ * 「INSERT 已提交、认领 UPDATE 未发出」的窗口里，让**另一个 worker**（独立数据库会话）
+ * 抢先认领刚落库的 pending 行。做法：只劫持目标表的第一条 insert 链 —— INSERT 的
+ * returning() 结果在解析给调用方之前，先由竞争者对它做守护式认领（真实提交），
+ * 然后原样放行被测的认领 UPDATE：它按 status='pending' 匹配必然落空。
+ * 不碰 drizzle 内部实现，其余调用全部透传。
+ */
+function raceClaimOnInsert(
+  db: BeeDb,
+  table: typeof dbSchema.pipelineStep | typeof dbSchema.pipelineRun,
+  competitorClaim: (insertedId: string) => Promise<void>,
+): BeeDb {
+  let armed = true;
+  const wrapBuilder = (builder: unknown): unknown =>
+    new Proxy(builder as object, {
+      get(target, prop) {
+        const value = Reflect.get(target as Record<string | symbol, unknown>, prop);
+        if (typeof value !== 'function') return value;
+        if (prop === 'returning') {
+          const returning = value as (...a: unknown[]) => Promise<{ id: string }[]>;
+          return (...args: unknown[]) =>
+            returning.apply(target, args).then(async (rows) => {
+              // 冲突落空（onConflictDoNothing）时没有行可抢，编排自然不发生。
+              if (rows.length > 0) await competitorClaim(rows[0]!.id);
+              return rows;
+            });
+        }
+        const method = value as (...a: unknown[]) => unknown;
+        return (...args: unknown[]) => {
+          const next = method.apply(target, args);
+          return next instanceof Promise ? next : wrapBuilder(next);
+        };
+      },
+    });
+  return new Proxy(db, {
+    get(target, prop) {
+      if (prop === 'insert') {
+        return (tbl: unknown) => {
+          const builder = target.insert(tbl as never);
+          if (armed && tbl === table) {
+            armed = false;
+            return wrapBuilder(builder);
+          }
+          return builder;
+        };
+      }
+      const value = Reflect.get(target as Record<string | symbol, unknown>, prop);
+      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as unknown as BeeDb;
+}
 
 describe.skipIf(!TEST_URL)('ledger 台账 helper', () => {
   const pins = { gitSha: 'deadbeef', rulesVersion: 'rules@1', dictionaryHash: 'd'.repeat(64) };
@@ -177,6 +234,113 @@ describe.skipIf(!TEST_URL)('ledger 台账 helper', () => {
     ).rejects.toMatchObject({ name: 'LedgerError', code: 'in_flight' });
     expect(fnCalls).toBe(0);
     await finishRun(db, run.id, { status: 'failed', error: 'step 在途崩溃' });
+  });
+
+  // ─── DAW-35 B1：pending 自愈 —— 登记后、认领前崩溃的重投必须能恢复 ───────────────
+
+  it('B1（step 级）：命中 pending 步（登记后认领前崩）→ 自愈认领并继续执行业务，不误报 in_flight', async () => {
+    const { run } = await newRun();
+    // 崩溃现场：0002 守卫只许 pending 落库 —— 裸 INSERT 正是「INSERT 已提交、认领未发生」的窗口。
+    const [crashed] = await db
+      .insert(dbSchema.pipelineStep)
+      .values({ runId: run.id, stepKind: 'extract', seq: 1, stepVersion: '1.0.0', status: 'pending' })
+      .returning();
+    let fnCalls = 0;
+    const outcome = await withStep(
+      db,
+      { runId: run.id, stepKind: 'extract', seq: 1, stepVersion: '1.0.0' },
+      async () => {
+        fnCalls += 1;
+        return '崩溃恢复后的产物';
+      },
+    );
+    // 自愈认领成功 = 执行所有权在本 worker（claimed），业务照常执行 —— 不是 in_flight。
+    expect(fnCalls).toBe(1);
+    expect(outcome.replayed).toBe(false);
+    expect(outcome.result).toBe('崩溃恢复后的产物');
+    expect(outcome.step.status).toBe('succeeded');
+    expect(outcome.step.id).toBe(crashed!.id); // 复用台账行（reused），不是另建
+    expect(outcome.step.startedAt).toBeTruthy();
+    await finishRun(db, run.id, { status: 'succeeded' });
+  });
+
+  it('B1（run 级）：幂等键命中 pending run（登记后认领前崩）→ 自愈认领，reused=true 且 claimed=true', async () => {
+    const key = unique('b1-run');
+    const [crashed] = await db
+      .insert(dbSchema.pipelineRun)
+      .values({
+        kind: 'daily_collect',
+        triggeredBy: 'schedule',
+        gitSha: pins.gitSha,
+        rulesVersion: pins.rulesVersion,
+        dictionaryHash: pins.dictionaryHash,
+        idempotencyKey: key,
+        status: 'pending',
+      })
+      .returning();
+    const again = await startRun(db, { kind: 'daily_collect', triggeredBy: 'schedule', pins, idempotencyKey: key });
+    // 两个判别各管各的：记录是复用的（reused），执行所有权也拿到了（claimed）。
+    expect(again.reused).toBe(true);
+    expect(again.claimed).toBe(true);
+    expect(again.run.id).toBe(crashed!.id);
+    expect(again.run.status).toBe('running');
+    expect(again.run.startedAt).toBeTruthy();
+    await finishRun(db, again.run.id, { status: 'succeeded' });
+  });
+
+  // ─── DAW-35 B2：认领失手 —— 并发 worker 抢走认领后，本调用必须拒绝执行业务 ───────
+
+  it('B2（step 级）：INSERT 已提交但认领被并发 worker 抢走 → claimed=false，fn 一次都不执行', async () => {
+    const { run } = await newRun();
+    // 竞争者：独立数据库会话（另一个 worker）。
+    const competitor = createDb(TEST_URL);
+    let fnCalls = 0;
+    let competitorGrabbed = false;
+    const raced = raceClaimOnInsert(db, dbSchema.pipelineStep, async (stepId) => {
+      const [grabbed] = await competitor
+        .update(dbSchema.pipelineStep)
+        .set({ status: 'running', startedAt: new Date() })
+        .where(and(eq(dbSchema.pipelineStep.id, stepId), eq(dbSchema.pipelineStep.status, 'pending')))
+        .returning();
+      competitorGrabbed = grabbed !== undefined; // 竞争者确实抢到了认领
+    });
+    await expect(
+      withStep(raced, { runId: run.id, stepKind: 'extract', seq: 1, stepVersion: '1.0.0' }, async () => {
+        fnCalls += 1;
+      }),
+    ).rejects.toMatchObject({ name: 'LedgerError', code: 'in_flight' });
+    expect(competitorGrabbed).toBe(true);
+    expect(fnCalls).toBe(0); // 认领失手：业务绝不执行（双写防线）
+    // 台账行停在竞争者手里（running），没有被本 worker 偷渡改写终态。
+    const [row] = await db
+      .select()
+      .from(dbSchema.pipelineStep)
+      .where(and(eq(dbSchema.pipelineStep.runId, run.id), eq(dbSchema.pipelineStep.seq, 1)));
+    expect(row?.status).toBe('running');
+    expect(row?.startedAt).toBeTruthy();
+    await finishRun(db, run.id, { status: 'failed', error: 'step 认领被并发 worker 抢走' });
+  });
+
+  it('B2（run 级）：无键 run 的认领被并发 worker 抢走 → claimed=false，调用方不得编排执行', async () => {
+    const competitor = createDb(TEST_URL);
+    let competitorGrabbed = false;
+    const raced = raceClaimOnInsert(db, dbSchema.pipelineRun, async (runId) => {
+      const [grabbed] = await competitor
+        .update(dbSchema.pipelineRun)
+        .set({ status: 'running', startedAt: new Date() })
+        .where(and(eq(dbSchema.pipelineRun.id, runId), eq(dbSchema.pipelineRun.status, 'pending')))
+        .returning();
+      competitorGrabbed = grabbed !== undefined;
+    });
+    const outcome = await startRun(raced, { kind: 'daily_collect', triggeredBy: 'test', pins });
+    // 行是本调用新建的（reused:false），但认领被抢走（claimed:false）——
+    // 「新建者」身份不是执行权，调用方见 claimed:false 就必须跳过编排。
+    expect(outcome.reused).toBe(false);
+    expect(outcome.claimed).toBe(false);
+    expect(outcome.run.status).toBe('running'); // 现场如实：竞争者在执行
+    expect(outcome.run.startedAt).toBeTruthy();
+    expect(competitorGrabbed).toBe(true);
+    // run 在竞争者手里 —— 本测试不再 finish 它（无权），只断言现场。
   });
 
   it('withStep 重投命中 failed / skipped 步：already_terminal，业务 fn 不执行', async () => {

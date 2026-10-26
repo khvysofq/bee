@@ -11,7 +11,11 @@
  *  - 0000 时代的坏 region 树（market→country、孤儿 city）穿过 0001，在 0002 被拒；
  *  - 0000 时代的 derived_indicator.contributing_quote_ids 数组被 0001 掉列且无回填 ——
  *    0002 对「零贡献指标」拒绝放行（不静默 DROP、也不静默通过）；
- *  - 0001 时代的同槽位双活跃（半修正）—— 0002 存量校验拒绝，必须先闭合再前进。
+ *  - 0001 时代的同槽位双活跃（半修正）—— 0002 存量校验拒绝，必须先闭合再前进；
+ *  - 多 country 根（0000 存量）的**释放口径**（DAW-35 R3）：fail-loud 提前发生在 0001
+ *    建 `region_single_country_uq` 时（操作层闸门），因此 0002 的 `country_count > 1`
+ *    分支在正常迁移链上不可达 —— 它是对绕过 0001 直接上 0002 的库（如手工修补过
+ *    迁移历史的库）的纵深防御。两层都拒绝、只是拦截面不同；本套件锁定 0001 这一层。
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -101,6 +105,22 @@ describe.skipIf(!TEST_URL)('迁移存量校验：0002 对存量库 fail-loud，�
       await applyExpectMessage(client, '0002_steady_badger', 'region tree 存量校验失败');
     } finally {
       await dropProbe(client, 'region');
+    }
+  });
+
+  it('多 country 根（0000 存量）：0001 建 region_single_country_uq 时即被拒 —— 多根的操作层闸门（DAW-35 R3 释放口径）', async () => {
+    const client = await freshProbe('multicountry');
+    try {
+      await apply(client, '0000_freezing_morph');
+      // 0000 没有任何单根约束，两个 country 合法并存（正是 reviewer 验证过的字面路径）。
+      await client.query(`INSERT INTO region (level, code, name_cn) VALUES ('country', 'probe-cn', '中国')`);
+      await client.query(`INSERT INTO region (level, code, name_cn) VALUES ('country', 'probe-us', '美国')`);
+      // 释放口径（DAW-35 R3）：多根 fail-loud 提前发生在 0001 —— 部分唯一索引一建即拒，
+      // 链执行不到 0002 的 country_count > 1 分支。0001 是多根的操作层闸门；
+      // 0002 的同名校验是对「绕过 0001 直接上 0002」的库的纵深防御，见 docs/data-model.md §4。
+      await applyExpectMessage(client, '0001_happy_wallflower', 'region_single_country_uq');
+    } finally {
+      await dropProbe(client, 'multicountry');
     }
   });
 

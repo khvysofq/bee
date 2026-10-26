@@ -7,7 +7,7 @@
 
 ---
 
-## 1. 分层总览：六层二十二表
+## 1. 分层总览：六层二十三表
 
 ```
 字典层  category, spec_grade, unit, unit_conversion,
@@ -158,7 +158,11 @@ CHECK 约束：raw/norm 值域下界 ≤ 上界；`validation_status='validated'
 
 树结构纪律（触发器强制，DAW-33 P0-3）：
 - **阶梯**：parent 必须恰是下一级（market→city→macro_region→country），跨级、反向、自环全部拒绝；
-- **单根**：全库最多一行 `level='country'`（部分唯一索引）——「全国」有且只有一个；
+- **单根**：全库最多一行 `level='country'`（部分唯一索引）——「全国」有且只有一个。
+  迁移链上的多根闸门分两层（释放口径，DAW-35 R3）：0000 存量库若已有多个 country，
+  在 **0001** 建 `region_single_country_uq` 时即被拒（操作层闸门）；0002 的
+  `country_count > 1` 存量校验因此正常链不可达，是对绕过 0001 直接上 0002 的库
+  （如手工修补过迁移历史的库）的纵深防御 —— 两层都 fail-loud，只是拦截面不同；
 - **被引用冻结**：已被观测/定档/指标/映射/覆盖或子节点引用的 region，`level` 与 `parent_id` 不可改、不可删 ——
   地域树重组是口径决策（caliber_decision + 重算），不是一条 UPDATE。
 
