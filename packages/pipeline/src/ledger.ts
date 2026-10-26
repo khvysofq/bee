@@ -328,7 +328,15 @@ export async function finishStep(
  */
 export async function withStep<T>(
   db: BeeDb,
-  args: { runId: string; stepKind: StepKind; seq: number; stepVersion?: string; inputRefs?: StepRefs },
+  args: {
+    runId: string;
+    stepKind: StepKind;
+    seq: number;
+    stepVersion?: string;
+    inputRefs?: StepRefs;
+    /** 成功后把业务结果映射为台账 output_refs（只存 id / 内容寻址引用，不内联大对象）。 */
+    outputRefs?: (result: T) => StepRefs;
+  },
   fn: (step: PipelineStepRow, tx: BeeTx) => Promise<T>,
 ): Promise<WithStepOutcome<T>> {
   const { step, claimed } = await startStep(db, args); // 提交 ①：先登记（认领）再干活
@@ -363,7 +371,10 @@ export async function withStep<T>(
     await finishStep(db, step.id, { status: 'failed', error: String(error) });
     throw error;
   }
-  const finished = await finishStep(db, step.id, { status: 'succeeded' }); // 提交 ③（成功分支）
+  const finished = await finishStep(db, step.id, {
+    status: 'succeeded',
+    outputRefs: args.outputRefs?.(result),
+  }); // 提交 ③（成功分支）
   return { step: finished, replayed: false, result };
 }
 

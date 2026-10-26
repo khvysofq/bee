@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "sourceCode": "fixture-b",
+  "license": {
+    "id": "CC0-1.0",
+    "note": "自造合成测试数据，由本仓库以 CC0-1.0 释出；不含任何第三方站点内容"
+  },
+  "pages": [
+    {
+      "url": "fixture://fixture-b/2026-10-19",
+      "fetchedAt": "2026-10-19T07:05:00Z",
+      "publishedAt": "2026-10-19T06:40:00Z",
+      "rows": [
+        {
+          "category": "废钢",
+          "spec": "重废",
+          "region": "苏州",
+          "priceType": "采购价",
+          "priceText": "2320-2370",
+          "unit": "元/吨",
+          "quoteDate": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "url": "fixture://fixture-b/2026-10-25",
+      "fetchedAt": "2026-10-25T07:05:00Z",
+      "publishedAt": "2026-10-25T06:40:00Z",
+      "rows": [
+        {
+          "category": "废钢",
+          "spec": "重废",
+          "region": "苏州",
+          "priceType": "采购价",
+          "priceText": "2350-2400",
+          "unit": "元/吨",
+          "quoteDate": "2026-10-25"
+        }
+      ]
+    },
+    {
+      "url": "fixture://fixture-b/2026-10-26",
+      "fetchedAt": "2026-10-26T07:05:00Z",
+      "publishedAt": "2026-10-26T06:40:00Z",
+      "rows": [
+        {
+          "category": "废钢",
+          "spec": "重废",
+          "region": "苏州",
+          "priceType": "采购价",
+          "priceText": "2380-2420",
+          "unit": "元/吨",
+          "quoteDate": "2026-10-26"
+        },
+        {
+          "category": "废钢",
+          "spec": "重废",
+          "region": "苏州",
+          "priceType": "销售价",
+          "priceText": "2550-2600",
+          "unit": "元/吨",
+          "quoteDate": "2026-10-26"
+        },
+        {
+          "category": "废铜",
+          "spec": "光亮铜线",
+          "region": "苏州",
+          "priceType": "采购价",
+          "priceText": "68200-69200",
+          "unit": "元/吨",
+          "quoteDate": "2026-10-26"
+        },
+        {
+          "category": "废铝",
+          "spec": "光亮铝线",
+          "region": "佛山",
+          "priceType": "采购价",
+          "priceText": "16600-16900",
+          "unit": "元/吨",
+          "quoteDate": "2026-10-26"
+        },
+        {
+          "category": "废纸",
+          "spec": "箱板纸",
+          "region": "临沂",
+          "priceType": "采购价",
+          "priceText": "1530-1570",
+          "unit": "元/吨",
+          "quoteDate": "2026-10-26"
+        },
+        {
+          "category": "废塑料",
+          "spec": "PET瓶砖",
+          "region": "广州",
+          "priceType": "采购价",
+          "priceText": "2.45-2.55",
+          "unit": "元/斤",
+          "quoteDate": "2026-10-26"
+        }
+      ]
+    }
+  ]
+}

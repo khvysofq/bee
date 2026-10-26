@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "sourceCode": "open-cc0-sample",
+  "license": {
+    "id": "CC0-1.0",
+    "note": "本仓库自造并以 CC0-1.0 释出的开放数据样例；不是对任何第三方站点内容的复制"
+  },
+  "pages": [
+    {
+      "url": "fixture://open-cc0-sample/2026-10-26",
+      "fetchedAt": "2026-10-26T07:15:00Z",
+      "publishedAt": "2026-10-26T06:50:00Z",
+      "rows": [
+        {
+          "category": "废纸",
+          "spec": "书本纸",
+          "region": "天津",
+          "priceType": "采购价",
+          "priceText": "1300-1340",
+          "unit": "元/吨",
+          "quoteDate": "2026-10-26"
+        },
+        {
+          "category": "废塑料",
+          "spec": "PE料",
+          "region": "天津",
+          "priceType": "采购价",
+          "priceText": "5600-5800",
+          "unit": "元/吨",
+          "quoteDate": "2026-10-26"
+        }
+      ]
+    }
+  ]
+}

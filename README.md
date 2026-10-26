@@ -4,7 +4,8 @@
 产品三块能力（行情简报 / 情景推演 / 行业问答）全部建在本仓库的**规范化报价库**之上。
 
 - **产品 MRD/PRD（研发基准）：[`docs/mrd-prd.md`](docs/mrd-prd.md)** —— 已批准 v1.0，来源 Paperclip DAW-27
-- 本骨架是 **P0-1（DAW-28）** 的交付：技术选型决策记录 + 数据模型定稿 + 可本地起服务的仓库骨架
+- **P0-1（DAW-28）**：技术选型决策记录 + 数据模型定稿 + 可本地起服务的仓库骨架
+- **P0-3（GUA-15）**：fixture/CC0 数据管线端到端（采集→归档→抽取→规范化→Agent 校验→定档/指标→回放）
 - 数据模型全文：[`docs/data-model.md`](docs/data-model.md)
 - 技术选型决策记录（ADR）：[`docs/adr/`](docs/adr/)
 - 口径字典与公开来源调研：[`docs/DAW-29-calibration-dictionary-v1.md`](docs/DAW-29-calibration-dictionary-v1.md)
@@ -34,7 +35,7 @@ apps/
 packages/
   db/                  # 核心：drizzle schema（23 表）+ 迁移 + 种子 + 集成测试
   core/                # 跨端契约：溯源响应、管线 step 契约、计价单位换算
-  pipeline/            # 管线地基（台账 helper + P0-3 约定）；采集与校验在 P0-3 落地
+  pipeline/            # P0-3 管线：fixture 适配器、内容寻址归档、抽取/规范化/校验/定档/回放
 docs/
   mrd-prd.md           # 产品 MRD/PRD（研发基准，已批准 v1.0）
   data-model.md        # 数据模型定稿（交付物 2–6 的字段级定义 + 溯源/回放设计）
@@ -54,8 +55,8 @@ pnpm dev                          # 5. http://localhost:3000 —— 数据底座
 pnpm test                         # 验收测试（含「同一品类同城不同价」集成证明，需本地 Postgres）
 ```
 
-验证到什么程度算好：`pnpm test` 全绿（含 7 组集成测试：同城不同价表达、WORM、
-观测值不可变、validated 完整性、地域层级守卫、加工指标恒为聚合、映射 scope），
+验证到什么程度算好：`pnpm test` 全绿（原有 7 组不变量集成测试 + P0-3 fixture 端到端：
+采集/归档/抽取/规范化/Agent 校验/异常隔离/定档/加工指标/回放/幂等/合规闸门），
 状态页显示各表计数。
 
 ## 核心设计一句话（红线）

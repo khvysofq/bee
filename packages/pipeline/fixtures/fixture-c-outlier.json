@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "sourceCode": "fixture-c-outlier",
+  "license": {
+    "id": "CC0-1.0",
+    "note": "自造异常/未映射样本，由本仓库以 CC0-1.0 释出；不含任何第三方站点内容"
+  },
+  "pages": [
+    {
+      "url": "fixture://fixture-c-outlier/2026-10-26",
+      "fetchedAt": "2026-10-26T07:10:00Z",
+      "publishedAt": "2026-10-26T06:45:00Z",
+      "rows": [
+        {
+          "category": "废钢",
+          "spec": "重废",
+          "region": "苏州",
+          "priceType": "采购价",
+          "priceText": "2000-2050",
+          "unit": "元/吨",
+          "quoteDate": "2026-10-26"
+        },
+        {
+          "category": "未知品类",
+          "spec": "混合料",
+          "region": "昆明",
+          "priceType": "采购价",
+          "priceText": "1234-1256",
+          "unit": "元/吨",
+          "quoteDate": "2026-10-26"
+        }
+      ]
+    }
+  ]
+}

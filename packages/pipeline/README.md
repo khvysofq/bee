@@ -1,7 +1,11 @@
 # @bee/pipeline —— 数据管线（P0-3 落地处）
 
-本包在 P0-1 只落**地基**：台账 helper（`src/ledger.ts`）与运行契约（`@bee/core` 的 `steps.ts`）。
-采集、规范化、Agent 校验、异常隔离的具体实现属于 P0-3（DAW-31），此处先明确约定。
+本包在 P0-1 落地台账 helper（`src/ledger.ts`）与运行契约（`@bee/core` 的 `steps.ts`）；
+P0-3 已在此之上跑通 **fixture/CC0 数据的端到端管线**：
+采集 → 内容寻址归档 → 确定性抽取 → 规范化 → Agent 校验 + 异常队列 → 定档报价/加工指标 → 回放。
+
+> P0-3 只接自造 fixture 与明确 CC0 样本（见 `fixtures/README.md`）。`docs/compliance` 中
+> `BLOCKED-RIGHTS` 的来源一律不接，人工复制也不进管线。
 
 ## 管线形态（P0-3 按此实现）
 
@@ -29,9 +33,9 @@ fetch（按 source 表调度，错峰+限速）
    `withStep` 重投：succeeded → `replayed:true` **业务不重复执行**；running → `in_flight`；
    failed/skipped → `already_terminal`（都不会先执行业务再失败）；
    双重 finish / pending 越级 finish 抛 `LedgerError`（DB 触发器是最后一道防线，helper 先给可读错误）。
-2. **原始内容不可变**：抓取内容写内容寻址存储后用 `registerRawFetch` 登记 ——
-   内容先落 `raw_content`（同 sha 全库一行，首见 content_ref 作数），再落 `raw_fetch`（一行一次抓取），
-   顺序是外键硬约束；返回的 `contentExisted=false` 才需要写文件到 RAW_STORE_DIR。任何后续步骤不改不删。
+2. **原始内容不可变**：fetch 步先按 sha 查 `raw_content`；首次把内容写入 RAW_STORE_DIR 并登记
+   `raw_content`（同 sha 全库一行，首见 content_ref 作数），之后每次抓取只新增
+   `raw_fetch`（一行一次抓取）。顺序是外键硬约束；任何后续步骤不改不删。
 3. **观测值不可改**：修正 = 新观测（同 fetch 同行 revision 递增）+ `superseded_by_id`，
    **两笔写必须在同一事务**（同槽位任何时刻至多一个活跃版本，可延迟约束触发器提交时校验 ——
    拆成两次提交的半修正整体拒绝）；后继必须同槽位同维度。DB 触发器已强制，代码不要试图绕过。
@@ -54,10 +58,36 @@ fetch（按 source 表调度，错峰+限速）
 每来源一个 cron 式任务（`source.crawl_frequency_per_day` / `rate_limit_seconds` / `crawl_window_json`），
 失败重试与退避交给 pg-boss，业务失败细节落台账。
 
-## P0-3 待补清单（本骨架刻意不做）
+## P0-3 已落地模块
 
-- 来源适配器框架与真实来源（先登记 `source` + 核查 ToS/robots）
-- 映射建议 → 口径决策点的工作流（异常队列 ↔ caliber_decision）
-- 校验规则集与版本号管理（`rules_version` 从此有值）
-- `dictionary_hash` 的计算实现（active 字典行导出 + sha256）
-- 员工/人审视图与 Paperclip 异常队列桥接
+| 模块 | 职责 |
+|---|---|
+| `types.ts` | `SourceAdapter` / `SourceDocument` / `ExtractedRow` 等契约 |
+| `adapters/fixture.ts` + `adapters/registry.ts` | fixture/CC0 适配器；**真实源接入点** = 新增实现并注册 `source.code` |
+| `store.ts` | 内容寻址存档（raw / work / replay 三个命名空间，路径穿越校验） |
+| `extract.ts` | 确定性价格抽取（区间/单值/全角数字），抽取工件按 sha 寻址 |
+| `mapping.ts` | source 专属 active 映射优先于 global；单位/价类型映射；`dictionary_hash` |
+| `normalize.ts` | 映射 + 元/吨换算；一次性写全观测（观测值落库后不可 UPDATE 的触发器红线） |
+| `agent.ts` | Agent 校验器契约；当前 `fixture-reviewer-v1` 是占位实现，接真模型只换实现 |
+| `validate.ts` | DAW-29 阈值（日 ±3% / 周 ±6% / 跨源 ±4%）+ 校验计划/落库/异常队列 |
+| `aggregate.ts` | validated 观测 → daily_quote；城市定档 → national_weighted_avg + 贡献明细 |
+| `pipeline.ts` | 六步编排；每步 `withStep`，输出 id/内容地址引用 |
+| `replay.ts` | 从 raw_fetch 重走抽取/规范化/校验，产 report，不写生产观测/定档/指标 |
+
+测试入口：`tests/pipeline.integration.test.ts`（fixture 主链、回放 0 差异、幂等重投、
+合规闸门、映射优先级、抽取确定性）。
+
+## 仍在占位 / 后续接入
+
+- **真实来源适配器**：P0-3 只有 fixture/CC0；真实源先登记 `source`（`active` + `robots=allowed`）
+  并取得书面复用许可后，在 registry 增加适配器。管线默认只允许 `CC0-1.0`，调用方可显式扩展
+  `allowedLicenses`。
+- **pg-boss 调度装配**：本轮验收聚焦本地端到端，cron/限速/重试尚未接 worker；台账幂等键已按
+  job id 语义设计，可直接复用。
+- **真实 LLM 校验**：`fixture-reviewer-v1` 是确定性占位，只复述规则结论；替换为真实模型时
+  `agent_invocation` 的 model/prompt/input/output/latency 留痕链路已就绪。
+- **历史字典快照**：run 落 `dictionary_hash`，但未保存字典内容快照；跨字典版本的严格回放需要
+  后续增加字典快照/导出。
+- **人工裁决回写**：回放只产报告 + 异常；`--writeback` 的 supersede 链写回未实现。
+- **异常队列 UI / Paperclip 桥接**：当前只落 `exception_queue`，人审视图属于 P0-4。
+- **映射建议工作流**：机器只能写 `proposed`，人工确认 → `caliber_decision` 的工作流未接。
