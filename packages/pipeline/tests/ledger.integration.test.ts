@@ -1,12 +1,14 @@
 /**
- * 台账 helper 集成测试（DAW-33 评审修复的代码层配套）。
+ * 台账 helper 集成测试（DAW-33 评审修复的代码层配套；DAW-34 复审补重投语义）。
  *
- * DB 层的触发器/唯一约束（状态机、终态冻结、append-only、幂等索引）已在
- * packages/db/tests/schema.integration.test.ts 的 M 组锁死 —— 这里锁 helper 本身的行为：
- *  - startRun/startStep 的幂等复用语义（reused 标志）；
- *  - stepVersion 落库（回放依据）；
- *  - 守护式 finish：双重 finish / pending 越级 / 不存在，都拿到带 code 的可读 LedgerError，
- *    而不是穿透到触发器的 P0001；
+ * DB 层的触发器/唯一约束（状态机、终态冻结、append-only、幂等索引、INSERT 只许 pending）
+ * 已在 packages/db/tests/schema.integration.test.ts 的 M 组锁死 —— 这里锁 helper 本身的行为：
+ *  - startRun/startStep：pending 落库 + 守护式认领（DB 触发器前的可读错误层）；
+ *  - startRun 幂等复用（reused 标志）、stepVersion 落库（回放依据）；
+ *  - startStep 复用必须同 stepKind 同 stepVersion —— 换实现 = idempotency_conflict；
+ *  - 守护式 finish：双重 finish / pending 越级 / 不存在 → 带 code 的可读 LedgerError；
+ *  - withStep 重投语义（DAW-34 核心断言）：succeeded → replayed 且 fn 不执行；
+ *    running → in_flight 且 fn 不执行；failed/skipped → already_terminal 且 fn 不执行；
  *  - withStep 的事务时序：业务写原子、失败回滚但失败留痕、错误原样重抛；
  *  - registerRawFetch：内容先行、同内容首见 content_ref 作数、抓取登记天然可重复。
  */
@@ -27,12 +29,17 @@ describe.skipIf(!TEST_URL)('ledger 台账 helper', () => {
     return startRun(db, { kind: 'daily_collect', triggeredBy: 'test', pins });
   }
 
-  it('startRun → withStep → finishRun 全链路：stepVersion 落库、业务写在 tx 里原子提交', async () => {
+  it('startRun → withStep → finishRun 全链路：pending 落库后认领 running、stepVersion 落库、业务写在 tx 里原子提交', async () => {
     const { run } = await newRun();
-    const { step, result } = await withStep(
+    // 0002 起 run/step 只能以 pending 落库；startRun 内部完成 pending→running 的认领。
+    expect(run.status).toBe('running');
+    expect(run.startedAt).toBeTruthy();
+    let fnCalls = 0;
+    const outcome = await withStep(
       db,
       { runId: run.id, stepKind: 'fetch', seq: 1, stepVersion: '1.0.0', inputRefs: { sourceId: 'src-x' } },
       async (step, tx) => {
+        fnCalls += 1;
         // 业务写走 tx；agent_invocation 的复合外键 (run_id, step_id) 同时被顺带验证：
         // step 属于该 run，插入必须成功。
         const [row] = await tx
@@ -50,9 +57,11 @@ describe.skipIf(!TEST_URL)('ledger 台账 helper', () => {
         return row!.id;
       },
     );
-    expect(step.status).toBe('succeeded');
-    expect(step.stepVersion).toBe('1.0.0');
-    expect(result).toBeTruthy();
+    expect(outcome.replayed).toBe(false);
+    expect(outcome.step.status).toBe('succeeded');
+    expect(outcome.step.stepVersion).toBe('1.0.0');
+    expect(outcome.result).toBeTruthy();
+    expect(fnCalls).toBe(1);
 
     const finished = await finishRun(db, run.id, { status: 'succeeded' });
     expect(finished.status).toBe('succeeded');
@@ -110,16 +119,96 @@ describe.skipIf(!TEST_URL)('ledger 台账 helper', () => {
     await finishRun(db, first.run.id, { status: 'succeeded' });
   });
 
-  it('startStep 幂等：(run_id, seq) 冲突复用既有 step；不同 seq 新建', async () => {
+  it('startStep 幂等：(run_id, seq) 冲突时同实现才复用；不同 stepKind/stepVersion = idempotency_conflict', async () => {
     const { run } = await newRun();
     const s1 = await startStep(db, { runId: run.id, stepKind: 'extract', seq: 1, stepVersion: '2.0.0' });
-    const s1again = await startStep(db, { runId: run.id, stepKind: 'extract', seq: 1 });
+    expect(s1.reused).toBe(false);
+    expect(s1.step.status).toBe('running'); // pending 落库后认领
+    // 同实现重投：复用既有 step（在途，status 仍是 running）。
+    const s1again = await startStep(db, { runId: run.id, stepKind: 'extract', seq: 1, stepVersion: '2.0.0' });
     expect(s1again.reused).toBe(true);
     expect(s1again.step.id).toBe(s1.step.id);
+    // 换 stepVersion：同 (run_id, seq) 上不是同一实现 —— 冲突，不静默复用
+    //（否则新版实现的业务写挂在旧版 step 的台账上，stepVersion 回放依据失效）。
+    await expect(
+      startStep(db, { runId: run.id, stepKind: 'extract', seq: 1, stepVersion: '3.0.0' }),
+    ).rejects.toMatchObject({ name: 'LedgerError', code: 'idempotency_conflict' });
+    await expect(
+      startStep(db, { runId: run.id, stepKind: 'normalize', seq: 1, stepVersion: '2.0.0' }),
+    ).rejects.toMatchObject({ name: 'LedgerError', code: 'idempotency_conflict' });
     const s2 = await startStep(db, { runId: run.id, stepKind: 'normalize', seq: 2 });
     expect(s2.reused).toBe(false);
     expect(s2.step.seq).toBe(2);
     await finishRun(db, run.id, { status: 'succeeded' });
+  });
+
+  it('withStep 重投命中 succeeded 步：replayed=true，业务 fn 一次都不执行（幂等重放）', async () => {
+    const { run } = await newRun();
+    let fnCalls = 0;
+    const args = { runId: run.id, stepKind: 'extract', seq: 1, stepVersion: '1.0.0' } as const;
+    const first = await withStep(db, args, async () => {
+      fnCalls += 1;
+      return '业务产物';
+    });
+    expect(first.replayed).toBe(false);
+    expect(first.result).toBe('业务产物');
+    // at-least-once 重投：fn 已成功过的步，再来一次 → 重放，绝不重复执行业务（双写防线）。
+    const retry = await withStep(db, args, async () => {
+      fnCalls += 1;
+      return '不该出现的第二次产物';
+    });
+    expect(retry.replayed).toBe(true);
+    expect(retry.result).toBeUndefined();
+    expect(retry.step.status).toBe('succeeded');
+    expect(fnCalls).toBe(1);
+    await finishRun(db, run.id, { status: 'succeeded' });
+  });
+
+  it('withStep 重投命中 running 步：in_flight，业务 fn 不执行（崩溃窗口 / 真并发交给清扫裁决）', async () => {
+    const { run } = await newRun();
+    // 预置一个在途步：登记后认领、但业务尚未收尾 —— 模拟「①后②前崩」的现场。
+    const pre = await startStep(db, { runId: run.id, stepKind: 'extract', seq: 1, stepVersion: '1.0.0' });
+    expect(pre.step.status).toBe('running');
+    let fnCalls = 0;
+    await expect(
+      withStep(db, { runId: run.id, stepKind: 'extract', seq: 1, stepVersion: '1.0.0' }, async () => {
+        fnCalls += 1;
+      }),
+    ).rejects.toMatchObject({ name: 'LedgerError', code: 'in_flight' });
+    expect(fnCalls).toBe(0);
+    await finishRun(db, run.id, { status: 'failed', error: 'step 在途崩溃' });
+  });
+
+  it('withStep 重投命中 failed / skipped 步：already_terminal，业务 fn 不执行', async () => {
+    // failed：第一步业务抛错（fn 执行 1 次后失败留痕），重投 → already_terminal，fn 不再执行。
+    const { run: runFail } = await newRun();
+    let fnCalls = 0;
+    await expect(
+      withStep(db, { runId: runFail.id, stepKind: 'extract', seq: 1, stepVersion: '1.0.0' }, async () => {
+        fnCalls += 1;
+        throw new Error('抽取失败');
+      }),
+    ).rejects.toThrow('抽取失败');
+    expect(fnCalls).toBe(1);
+    await expect(
+      withStep(db, { runId: runFail.id, stepKind: 'extract', seq: 1, stepVersion: '1.0.0' }, async () => {
+        fnCalls += 1;
+      }),
+    ).rejects.toMatchObject({ name: 'LedgerError', code: 'already_terminal' });
+    expect(fnCalls).toBe(1); // 失败步重投：业务不重复执行
+    await finishRun(db, runFail.id, { status: 'failed', error: 'extract 失败' });
+
+    // skipped：显式跳过的步，重投 → already_terminal（重跑须换 seq）。
+    const { run: runSkip } = await newRun();
+    const skipped = await startStep(db, { runId: runSkip.id, stepKind: 'extract', seq: 1, stepVersion: '1.0.0' });
+    await finishStep(db, skipped.step.id, { status: 'skipped' });
+    await expect(
+      withStep(db, { runId: runSkip.id, stepKind: 'extract', seq: 1, stepVersion: '1.0.0' }, async () => {
+        fnCalls += 1;
+      }),
+    ).rejects.toMatchObject({ name: 'LedgerError', code: 'already_terminal' });
+    expect(fnCalls).toBe(1);
+    await finishRun(db, runSkip.id, { status: 'succeeded' });
   });
 
   it('守护式 finish：双重 finish / pending 越级 / 不存在 → 带 code 的 LedgerError', async () => {

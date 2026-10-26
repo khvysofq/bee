@@ -46,6 +46,14 @@ describe('trace 转换层：timestamp → ISO', () => {
     expect(timestampToIso('2026-10-26T08:00:00Z')).toBe('2026-10-26T08:00:00.000Z');
   });
 
+  it('null/undefined 透传为 null（DAW-34：quoteDate 可空，缺价期 ≠ epoch）', () => {
+    expect(timestampToIso(null)).toBeNull();
+    expect(timestampToIso(undefined)).toBeNull();
+    // 回归锚：JS 的 Date 构造器接受 null 并给出 epoch —— 转换层必须挡在它前面，
+    // 否则溯源面板会渲染出 1970 年的假数据（比「没有数据」更糟）。
+    expect(new Date(null as unknown as string).toISOString()).toBe('1970-01-01T00:00:00.000Z');
+  });
+
   it('无效时间抛 TypeError', () => {
     expect(() => timestampToIso('not-a-date')).toThrow(TypeError);
   });
@@ -133,23 +141,75 @@ describe('trace 契约锁定：转换层是 DB 行 → 契约的必要且充分�
     expect(traceQuoteResponseSchema.parse(converted)).toBeTruthy();
   });
 
-  it('指标契约：is_aggregate=1 经 flagToBoolean 满足 z.literal(true)，value 经 numericToNumber 满足 z.number()', () => {
+  it('指标契约（DAW-34 补反向锁定）：DB 行直接塞 parse 必须失败，过转换层必须通过', () => {
+    const dbShapedIndicator = {
+      id: 'i1',
+      kind: 'national_median' as const,
+      categoryName: '废钢',
+      regionName: '中国',
+      basisDate: new Date('2026-10-25T00:00:00Z'), // ← DB 给 Date
+      value: '2205.00', // ← DB 给 numeric string
+      methodJson: { weights: 'by_trust' },
+      methodVersion: 'v1',
+      isAggregate: 1 as 0 | 1, // ← DB 给 integer，契约要求 z.literal(true)
+    };
+    // 方向一：直接塞 —— Date / numeric string / integer 0-1 都过不了契约。
+    expect(() =>
+      traceIndicatorResponseSchema.parse({
+        kind: 'derived_indicator',
+        indicator: dbShapedIndicator,
+        quotes: [{ quoteId: 'q1', valueAtAggregation: '2205.00' }],
+      }),
+    ).toThrow();
+    // 方向二：过转换层 —— is_aggregate 经 flagToBoolean 满足 z.literal(true)，
+    // value 经 numericToNumber 满足 z.number()，basisDate 经 timestampToIso 归一。
     const convertedIndicator = {
       kind: 'derived_indicator' as const,
       indicator: {
-        id: 'i1',
-        kind: 'national_median' as const,
-        categoryName: '废钢',
-        regionName: '中国',
-        basisDate: timestampToIso(new Date('2026-10-25T00:00:00Z')),
-        value: numericToNumber('2205.00')!,
-        methodJson: { weights: 'by_trust' },
-        methodVersion: 'v1',
+        id: dbShapedIndicator.id,
+        kind: dbShapedIndicator.kind,
+        categoryName: dbShapedIndicator.categoryName,
+        regionName: dbShapedIndicator.regionName,
+        basisDate: timestampToIso(dbShapedIndicator.basisDate),
+        value: numericToNumber(dbShapedIndicator.value)!,
+        methodJson: dbShapedIndicator.methodJson,
+        methodVersion: dbShapedIndicator.methodVersion,
         // derived_indicator.is_aggregate 在 DB 是 integer 1 —— 契约要求恒为 true。
-        isAggregate: flagToBoolean(1),
+        isAggregate: flagToBoolean(dbShapedIndicator.isAggregate),
       },
       quotes: [{ quoteId: 'q1', valueAtAggregation: numericToNumber('2205.00')! }],
     };
     expect(traceIndicatorResponseSchema.parse(convertedIndicator)).toBeTruthy();
+  });
+
+  it('观测契约：quoteDate 可空 —— DB 的 null 经转换层透传 null 后必须通过', () => {
+    // 抓取时页面未标注价期：price_observation.quote_date 允许 NULL，契约同步可空。
+    // 转换层若把 null 变成 epoch，溯源面板会渲染出 1970 年的假数据。
+    const converted = {
+      ...dbShapedObservation,
+      quoteDate: timestampToIso(null),
+      source: { ...dbShapedObservation.source, trustWeight: numericToNumber(dbShapedObservation.source.trustWeight)! },
+      fetchedAt: timestampToIso(dbShapedObservation.fetchedAt),
+      rawValueLow: numericToNumber(dbShapedObservation.rawValueLow),
+      rawValueHigh: numericToNumber(dbShapedObservation.rawValueHigh),
+      normValueLow: numericToNumber(dbShapedObservation.normValueLow),
+      normValueHigh: numericToNumber(dbShapedObservation.normValueHigh),
+      validationTrail: dbShapedObservation.validationTrail.map((v) => ({ ...v, at: timestampToIso(v.at) })),
+    };
+    expect(converted.quoteDate).toBeNull();
+    // 单观测形态本身在 traceQuoteResponseSchema 的 observations 数组里被完整校验。
+    expect(
+      traceQuoteResponseSchema.parse({
+        kind: 'daily_quote',
+        quote: {
+          ...dbShapedQuote,
+          quoteDate: timestampToIso(dbShapedQuote.quoteDate),
+          valueLow: numericToNumber(dbShapedQuote.valueLow)!,
+          valueHigh: numericToNumber(dbShapedQuote.valueHigh)!,
+          valueMid: numericToNumber(dbShapedQuote.valueMid)!,
+        },
+        observations: [converted],
+      }),
+    ).toBeTruthy();
   });
 });

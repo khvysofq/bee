@@ -1,6 +1,6 @@
 # ADR-0004 原始抓取存档：内容寻址不可变存储（本地 FS 起步，接口化，可换 S3）
 
-**状态**：已定稿（P0-1，2026-10-26；同日按 DAW-33 评审修订）｜**决策人**：CTO
+**状态**：已定稿（P0-1，2026-10-26；同日按 DAW-33 评审修订、DAW-34 复审同步表述）｜**决策人**：CTO
 
 ## 背景
 
@@ -10,8 +10,9 @@
 ## 决策
 
 - 抓取响应本体写入**内容寻址存储**：路径 `raw/YYYY/MM/DD/<sha256>.<ext>`，文件名即内容指纹。
-- 数据库 `raw_fetch` 行登记元数据（URL、时间、HTTP 状态、sha256、存储键），并在其上
-  **硬禁 UPDATE/DELETE**（触发器）。
+- 数据库侧分两表（DAW-33 修订，见文末）：`raw_content` 登记内容对象（主键即 sha256，
+  首见 `content_ref` 作数），`raw_fetch` 登记抓取事件元数据（URL、时间、HTTP 状态、
+  指向 raw_content 的 sha256）并在两表上**硬禁 UPDATE/DELETE**（触发器）。
 - 存储访问走一个极小的接口（`store.put(bytes) → ref` / `store.get(ref)`），v1 实现是本地目录
   （`RAW_STORE_DIR`，默认 `./data/raw-store`），生产替换为 S3 兼容实现即可，不动调用方。
 

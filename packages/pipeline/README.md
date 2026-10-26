@@ -19,12 +19,18 @@ fetch（按 source 表调度，错峰+限速）
 1. **每一步都过台账**（`src/ledger.ts`，DB 触发器 + helper 双层强制）：用 `withStep` 包每步
    （开步登记 → 业务原子写 → 结果留痕），input/output 只传 id 引用；
    `startRun/startStep` 传幂等键（pg-boss job id / (run, seq)），at-least-once 重投会复用既有记录（`reused` 标志）；
-   `startStep` 必须带 `stepVersion`（@bee/core step 契约的 version）—— 按 step 版本回放的依据；
+   `startStep` 必须带 `stepVersion`（@bee/core step 契约的 version）—— 按 step 版本回放的依据，
+   复用必须同 stepKind 同 stepVersion（换实现 = 换 seq 或升 stepVersion，否则 `idempotency_conflict`）；
+   run/step 只能以 `pending` 落库（0002 守卫），`startRun/startStep` 内部完成 pending→running 认领；
+   `withStep` 重投：succeeded → `replayed:true` **业务不重复执行**；running → `in_flight`；
+   failed/skipped → `already_terminal`（都不会先执行业务再失败）；
    双重 finish / pending 越级 finish 抛 `LedgerError`（DB 触发器是最后一道防线，helper 先给可读错误）。
 2. **原始内容不可变**：抓取内容写内容寻址存储后用 `registerRawFetch` 登记 ——
    内容先落 `raw_content`（同 sha 全库一行，首见 content_ref 作数），再落 `raw_fetch`（一行一次抓取），
    顺序是外键硬约束；返回的 `contentExisted=false` 才需要写文件到 RAW_STORE_DIR。任何后续步骤不改不删。
-3. **观测值不可改**：修正 = 新观测（同 fetch 同行 revision 递增）+ `superseded_by_id`；DB 触发器已强制，代码不要试图绕过。
+3. **观测值不可改**：修正 = 新观测（同 fetch 同行 revision 递增）+ `superseded_by_id`，
+   **两笔写必须在同一事务**（同槽位任何时刻至多一个活跃版本，可延迟约束触发器提交时校验 ——
+   拆成两次提交的半修正整体拒绝）；后继必须同槽位同维度。DB 触发器已强制，代码不要试图绕过。
 4. **LLM 只判断、不产数**：Agent 输出可以是校验结论、映射建议、叙事草稿；
    任何进入报价表的数字必须来自 `raw_fetch` 抽取链。`agent_invocation` 全量留痕
    （复合外键：run_id 与 step_id 同时给出时 step 必须属于该 run）。

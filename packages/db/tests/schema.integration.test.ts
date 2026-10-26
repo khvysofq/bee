@@ -24,7 +24,8 @@
  *  N. 字典 CHECK：换算系数>0、单 canonical、active 来源须 robots allowed、杂质规则期间合法。
  */
 import { describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { and, eq, isNull } from 'drizzle-orm';
 import { createDb, dbSchema } from '../src/index';
 
 const {
@@ -511,7 +512,7 @@ describe.skipIf(!TEST_URL)('schema 集成：分层不变量', () => {
     );
   });
 
-  it('H. 修正链：同槽位 revision 递增合法写入 + supersede 指针规则（P0-2）', async () => {
+  it('H. 修正链：同槽位唯一活跃 revision + supersede 指针规则 + 单事务原子性（P0-2 / DAW-34 闭合）', async () => {
     const f = await insertFixture('h');
     const base = { categoryId: f.steelCat.id, specId: f.heavySpec.id, unitId: f.unitId };
 
@@ -526,25 +527,71 @@ describe.skipIf(!TEST_URL)('schema 集成：分层不变量', () => {
       )
       .returning();
 
-    // 修正版：同 fetch 同行 revision=2 —— 这是 P0-2 之前被唯一键挡死的合法写入路径。
-    const [v2] = await db
+    // 合法修正 = 单事务两笔原子写：插入后继 + 标记前驱。
+    // 0002 的可延迟槽位守卫在提交时校验「同槽位仅一个活跃版本」—— 中间态（两笔都已写、
+    // 前驱未标）在事务内合法，提交时必须已闭合；这是 P0-2 修正链闭合的核心路径。
+    const v2 = await db.transaction(async (tx) => {
+      const [succ] = await tx
+        .insert(priceObservation)
+        .values(
+          observationFixture({
+            ...base, fetchId: f.fetches[0]!.id, sourceId: f.sources[0]!.id, fetchedAt: T0, rowIndex: 0, revision: 2,
+            regionId: f.eastMarket.id, priceType: 'purchase', normValue: '2210.00', status: 'validated',
+          }),
+        )
+        .returning();
+      await tx
+        .update(priceObservation)
+        .set({ validationStatus: 'superseded', supersededById: succ!.id })
+        .where(eq(priceObservation.id, v1!.id));
+      return succ!;
+    });
+    expect(v2!.revision).toBe(2);
+    // 提交后：同槽位（fetch 0, row 0）有且只有一个未 superseded 的版本。
+    const activeInSlot = await db
+      .select({ id: priceObservation.id })
+      .from(priceObservation)
+      .where(
+        and(
+          eq(priceObservation.fetchId, f.fetches[0]!.id),
+          eq(priceObservation.sourceRowIndex, 0),
+          isNull(priceObservation.supersededById),
+        ),
+      );
+    expect(activeInSlot).toHaveLength(1);
+    expect(activeInSlot[0]!.id).toBe(v2!.id);
+
+    // 半修正回归（DAW-34 探针路径）：后继单独提交、前驱未标 → 提交时槽位双活跃，整体拒绝。
+    // 拆成两次提交的修正不是修正，是数据污染 —— 在这里被挡死。
+    await db
       .insert(priceObservation)
       .values(
         observationFixture({
-          ...base, fetchId: f.fetches[0]!.id, sourceId: f.sources[0]!.id, fetchedAt: T0, rowIndex: 0, revision: 2,
-          regionId: f.eastMarket.id, priceType: 'purchase', normValue: '2210.00', status: 'validated',
+          ...base, fetchId: f.fetches[0]!.id, sourceId: f.sources[0]!.id, fetchedAt: T0, rowIndex: 8,
+          regionId: f.eastMarket.id, priceType: 'purchase', normValue: '2200.00', status: 'validated',
         }),
       )
       .returning();
-    expect(v2!.revision).toBe(2);
+    await expectDbError(
+      db.insert(priceObservation).values(
+        observationFixture({
+          ...base, fetchId: f.fetches[0]!.id, sourceId: f.sources[0]!.id, fetchedAt: T0, rowIndex: 8, revision: 2,
+          regionId: f.eastMarket.id, priceType: 'purchase', normValue: '2230.00', status: 'validated',
+        }),
+      ),
+      'P0001',
+    );
 
-    // 旧版指向新版：允许（值不变，仅状态与指针流转）。
-    await db
-      .update(priceObservation)
-      .set({ validationStatus: 'superseded', supersededById: v2!.id })
-      .where(eq(priceObservation.id, v1!.id));
+    // 指向不存在的后继 → 拒绝（合法顺序是先插后继；先后驱后指针 = 指空）。
+    await expectDbError(
+      db
+        .update(priceObservation)
+        .set({ validationStatus: 'superseded', supersededById: randomUUID() })
+        .where(eq(priceObservation.id, v2!.id)),
+      'P0001',
+    );
 
-    // 指针与状态双向锁定（CHECK）：只给指针不给状态 → 拒绝。
+    // 指针与状态双向锁定（CHECK）：事务内只给指针不给状态 → 拒绝且整体回滚（后继插入一并撤销）。
     const [v1b] = await db
       .insert(priceObservation)
       .values(
@@ -554,17 +601,22 @@ describe.skipIf(!TEST_URL)('schema 集成：分层不变量', () => {
         }),
       )
       .returning();
-    const [v2b] = await db
-      .insert(priceObservation)
-      .values(
-        observationFixture({
-          ...base, fetchId: f.fetches[0]!.id, sourceId: f.sources[0]!.id, fetchedAt: T0, rowIndex: 1, revision: 2,
-          regionId: f.eastMarket.id, priceType: 'purchase', normValue: '2215.00', status: 'validated',
-        }),
-      )
-      .returning();
     await expectDbError(
-      db.update(priceObservation).set({ supersededById: v2b!.id }).where(eq(priceObservation.id, v1b!.id)),
+      db.transaction(async (tx) => {
+        const [v2b] = await tx
+          .insert(priceObservation)
+          .values(
+            observationFixture({
+              ...base, fetchId: f.fetches[0]!.id, sourceId: f.sources[0]!.id, fetchedAt: T0, rowIndex: 1, revision: 2,
+              regionId: f.eastMarket.id, priceType: 'purchase', normValue: '2215.00', status: 'validated',
+            }),
+          )
+          .returning();
+        await tx
+          .update(priceObservation)
+          .set({ supersededById: v2b!.id })
+          .where(eq(priceObservation.id, v1b!.id));
+      }),
       '23514',
     );
     // 只有状态没有指针 → 拒绝。
@@ -598,7 +650,25 @@ describe.skipIf(!TEST_URL)('schema 集成：分层不变量', () => {
       '23505',
     );
 
-    // 跨维度替换 → 拒绝：后继必须同源同口径。
+    // 后继必须同槽位：跨 fetch/跨行的嫁接 → 拒绝（修正是「一条原始记录的换代」，不是跨记录搬运）。
+    const [otherSlot] = await db
+      .insert(priceObservation)
+      .values(
+        observationFixture({
+          ...base, fetchId: f.fetches[0]!.id, sourceId: f.sources[0]!.id, fetchedAt: T0, rowIndex: 7, revision: 2,
+          regionId: f.eastMarket.id, priceType: 'purchase', normValue: '2200.00', status: 'validated',
+        }),
+      )
+      .returning();
+    await expectDbError(
+      db
+        .update(priceObservation)
+        .set({ validationStatus: 'superseded', supersededById: otherSlot!.id })
+        .where(eq(priceObservation.id, v2!.id)),
+      'P0001',
+    );
+
+    // 后继必须同维度：同槽位但换了品类 → 拒绝（同源同口径，修正不允许跨口径替换）。
     const [copperCat] = await db
       .insert(category)
       .values({ code: 'h-copper', nameCn: '废铜', status: 'active' })
@@ -607,21 +677,32 @@ describe.skipIf(!TEST_URL)('schema 集成：分层不变量', () => {
       .insert(specGrade)
       .values({ categoryId: copperCat!.id, code: 'bright-wire', nameCn: '光亮铜线', status: 'active' })
       .returning();
-    const [otherDim] = await db
+    const [p9] = await db
       .insert(priceObservation)
       .values(
         observationFixture({
-          categoryId: copperCat!.id, specId: copperSpec!.id, unitId: f.unitId,
-          fetchId: f.fetches[0]!.id, sourceId: f.sources[0]!.id, fetchedAt: T0, rowIndex: 7, revision: 2,
+          ...base, fetchId: f.fetches[1]!.id, sourceId: f.sources[1]!.id, fetchedAt: new Date('2026-10-26T08:01:00Z'), rowIndex: 9,
           regionId: f.eastMarket.id, priceType: 'purchase', normValue: '2200.00', status: 'validated',
         }),
       )
       .returning();
     await expectDbError(
-      db
-        .update(priceObservation)
-        .set({ validationStatus: 'superseded', supersededById: otherDim!.id })
-        .where(eq(priceObservation.id, v2!.id)),
+      db.transaction(async (tx) => {
+        const [succ9] = await tx
+          .insert(priceObservation)
+          .values(
+            observationFixture({
+              categoryId: copperCat!.id, specId: copperSpec!.id, unitId: f.unitId,
+              fetchId: f.fetches[1]!.id, sourceId: f.sources[1]!.id, fetchedAt: new Date('2026-10-26T08:01:00Z'), rowIndex: 9, revision: 2,
+              regionId: f.eastMarket.id, priceType: 'purchase', normValue: '58000.00', status: 'validated',
+            }),
+          )
+          .returning();
+        await tx
+          .update(priceObservation)
+          .set({ validationStatus: 'superseded', supersededById: succ9!.id })
+          .where(eq(priceObservation.id, p9!.id));
+      }),
       'P0001',
     );
   });
@@ -942,6 +1023,39 @@ describe.skipIf(!TEST_URL)('schema 集成：分层不变量', () => {
       db.insert(pipelineRun).values({ kind: 'daily_collect', triggeredBy: 'retry', idempotencyKey: `${f.steelCat.id}-job-1` }),
       '23505',
     );
+
+    // INSERT 状态机（DAW-34 复审修复，0002 守卫）：run/step 只能以 pending 落库 ——
+    // 裸 INSERT 直接写 succeeded run / failed step、跳过 pending→running→终态的路径被堵死。
+    expect(run!.status).toBe('pending');
+    expect(step!.status).toBe('pending');
+    await expectDbError(
+      db.insert(pipelineRun).values({ kind: 'daily_collect', triggeredBy: 'manual', status: 'succeeded' }),
+      'P0001',
+    );
+    const [run3] = await db
+      .insert(pipelineRun)
+      .values({ kind: 'daily_collect', triggeredBy: 'manual' })
+      .returning();
+    await expectDbError(
+      db
+        .insert(pipelineStep)
+        .values({ runId: run3!.id, stepKind: 'fetch', seq: 1, stepVersion: 'v1', status: 'failed' }),
+      'P0001',
+    );
+    // 终态 run 冻结：事后追加 step = 伪造台账 → 拒绝。
+    const [runDone] = await db
+      .insert(pipelineRun)
+      .values({ kind: 'daily_collect', triggeredBy: 'manual' })
+      .returning();
+    await db.update(pipelineRun).set({ status: 'running', startedAt: new Date() }).where(eq(pipelineRun.id, runDone!.id));
+    await db
+      .update(pipelineRun)
+      .set({ status: 'succeeded', finishedAt: new Date() })
+      .where(eq(pipelineRun.id, runDone!.id));
+    await expectDbError(
+      db.insert(pipelineStep).values({ runId: runDone!.id, stepKind: 'fetch', seq: 1, stepVersion: 'v1' }),
+      'P0001',
+    );
   });
 
   it('N. 字典 CHECK：换算系数、单 canonical、采集前置、杂质规则期间', async () => {
@@ -958,7 +1072,10 @@ describe.skipIf(!TEST_URL)('schema 集成：分层不变量', () => {
     );
 
     // canonical 单位全局唯一（种子里的元/吨 只能有一个）。
-    // 先归零：bee_test 可能已被 briefing 套件 seed 过（串行执行下它先跑），也可能单跑本文件（无 canonical）—— 两种起点都成立。
+    // 单例隔离（DAW-34）：不假设执行顺序 —— bee_test 可能已被 briefing 套件 seed 过（串行下它先跑），
+    // 也可能单跑本文件（无 canonical）。先快照既有 canonical，测完原样恢复：
+    // 本测试不得把「谁当 canonical」的隐式顺序泄漏给其他套件，也不留自己的残留。
+    const priorCanonical = await db.select({ id: unit.id }).from(unit).where(eq(unit.isCanonical, 1));
     await db.update(unit).set({ isCanonical: 0 }).where(eq(unit.isCanonical, 1));
     const [canon1] = await db
       .insert(unit)
@@ -971,8 +1088,11 @@ describe.skipIf(!TEST_URL)('schema 集成：分层不变量', () => {
     // 退位后才能换人。
     await db.update(unit).set({ isCanonical: 0 }).where(eq(unit.id, canon1!.id));
     await db.insert(unit).values({ code: 'n-canonical-3', nameCn: '规范单位三', isCanonical: 1 });
-    // 收尾不留 canonical 残留：后续/重跑的 briefing seed 才能幂等地重新提升 元/吨。
+    // 清掉本测试建的 canonical，恢复进测试前的原状（至多一行，部分唯一索引保证）。
     await db.update(unit).set({ isCanonical: 0 }).where(eq(unit.isCanonical, 1));
+    for (const row of priorCanonical) {
+      await db.update(unit).set({ isCanonical: 1 }).where(eq(unit.id, row.id));
+    }
 
     // active 来源必须 robots allowed。
     await expectDbError(

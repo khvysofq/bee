@@ -73,9 +73,11 @@ unique (category_id, spec_id, region_id, quote_date, price_type)
 
 CHECK 约束：raw/norm 值域下界 ≤ 上界；`validation_status='validated'` ⇒ 规范化字段全非空（半映射数据进不了定档层）。
 
-**修正链（触发器强制，DAW-33 P0-2）**：改值 = 新行（同 fetch 同 row_index、revision 递增）+ 旧行置 `superseded_by_id` 指向新行。
-守卫规则：后继 revision 必须**严格大于**前代（物理上无环）；后继必须同 fetch、同维度（品类/规格/地域/行情日/价格类型）——跨维度不是修正，是新观测；
-指针与状态绑定（置 superseded 必须同时有指针；反指/自指/同 revision 重复全部拒绝）。
+**修正链（触发器强制，DAW-33 P0-2 + DAW-34 复审闭合）**：改值 = 新行（同 fetch 同 row_index、revision 递增）+ 旧行置 `superseded_by_id` 指向新行。
+守卫规则：后继 revision 必须**严格大于**前代（物理上无环）；后继必须**同槽位**（同 fetch 同 source_row_index —— 修正是「一条原始记录的换代」，不是跨记录嫁接）且同维度（品类/规格/地域/行情日/价格类型）——跨维度不是修正，是新观测；
+指针与状态绑定（置 superseded 必须同时有指针；反指/自指/同 revision 重复/指向不存在的后继全部拒绝）。
+同槽位**任何时刻至多一个未 superseded 的版本**（可延迟约束触发器，提交时校验）——因此这两笔写必须在**同一事务**内完成：
+拆成两次提交的「半修正」（后继已落库、前代未标）会在提交时被整体拒绝。存量库迁移（0002）对历史半修正同样显式拒绝，不静默通过。
 这是修正的**唯一合法写入路径**——旧值永远还在，审计链完整。
 
 ### 2.2 daily_quote —— 定稿后的「该维度当日价」
@@ -116,7 +118,7 @@ CHECK 约束：raw/norm 值域下界 ≤ 上界；`validation_status='validated'
 
 ---
 
-## 3. 交付物 3：口径字典（字典层 8 张表）
+## 3. 交付物 3：口径字典（字典层 9 张表）
 
 | 表 | 管什么 | 关键字段/约束 |
 |---|---|---|
@@ -266,5 +268,5 @@ model、prompt_version + prompt_sha、input/output 原文、latency。
 定档：daily_quote, derived_indicator, indicator_contribution
 运行：pipeline_run, pipeline_step, agent_invocation, exception_queue
 
-（共 22 张；schema 代码 `packages/db/src/schema/`，迁移 `packages/db/migrations/`（0000 生成 + 0001 评审修复，
-不回写历史迁移），种子 `packages/db/scripts/seed.ts` 演示最小可跑的字典内容。）
+（共 23 张；schema 代码 `packages/db/src/schema/`，迁移 `packages/db/migrations/`（0000 生成 + 0001 评审修复
++ 0002 DAW-34 复审修复，不回写历史迁移），种子 `packages/db/scripts/seed.ts` 演示最小可跑的字典内容。）

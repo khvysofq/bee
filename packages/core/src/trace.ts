@@ -138,8 +138,14 @@ export function flagToBoolean(value: 0 | 1 | boolean | null | undefined): boolea
   throw new TypeError(`标志字段收到非法值：${JSON.stringify(value)}`);
 }
 
-/** timestamp / ISO 字符串 → 契约要求的 ISO 字符串（fetchedAt、at、quoteDate、basisDate）。无效输入直接抛。 */
-export function timestampToIso(value: Date | string): string {
+/**
+ * timestamp / ISO 字符串 → 契约要求的 ISO 字符串（fetchedAt、at、quoteDate、basisDate）。
+ * null/undefined 透传为 null —— 契约里 quoteDate 本就可空（抓取时页面未标价期）；
+ * 没有这层透传时 new Date(null) 会悄悄变成 epoch（1970-01-01），比缺数据更糟。
+ * 其余无效输入直接抛。
+ */
+export function timestampToIso(value: Date | string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) {
     throw new TypeError(`时间字段收到不可解析的值：${JSON.stringify(value)}`);
