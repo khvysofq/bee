@@ -1,0 +1,70 @@
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+  background: #f7f7f5;
+  color: #1d1d1f;
+}
+
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 24px;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 0 0 4px;
+}
+
+.sub {
+  color: #6b6b70;
+  font-size: 14px;
+  margin: 0 0 32px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid #e3e3e0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+td {
+  padding: 10px 16px;
+  font-size: 14px;
+  border-bottom: 1px solid #f0f0ee;
+}
+
+td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.error {
+  background: #fff;
+  border: 1px solid #f0c8c8;
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 14px;
+}
+
+.foot {
+  margin-top: 24px;
+  color: #6b6b70;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+code {
+  background: #eee;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12.5px;
+}

@@ -1,0 +1,25 @@
+node_modules/
+dist/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# 环境与本地数据
+.env
+.env.local
+data/*
+!data/.gitkeep
+
+# 运行时产物
+*.log
+.DS_Store
+# Next 16 每次本地运行自动生成，不入库
+apps/web/AGENTS.md
+
+# 编辑器
+.idea/
+.vscode/
+
+# 运行代理的本地会话目录
+.claude/

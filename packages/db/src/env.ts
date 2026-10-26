@@ -1,0 +1,30 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { config } from 'dotenv';
+
+/**
+ * DATABASE_URL 解析顺序：已导出的环境变量 > 当前目录 .env > 单仓库根 .env。
+ *
+ * 为什么要在代码里找根 .env：pnpm --filter 以包目录为 cwd 运行脚本，
+ * 而开发者按 README 的最短路径把 .env 放在仓库根（cp .env.example .env）。
+ */
+export function resolveDatabaseUrl(): string | undefined {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  for (const candidate of [path.resolve('.env'), path.resolve('../../.env')]) {
+    if (existsSync(candidate)) {
+      config({ path: candidate });
+      if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+    }
+  }
+  return undefined;
+}
+
+/** 带「怎么办」提示的 DATABASE_URL 读取（脚本入口用）。 */
+export function requireDatabaseUrl(): string {
+  const url = resolveDatabaseUrl();
+  if (!url) {
+    console.error('缺少 DATABASE_URL（复制 .env.example 为 .env 后重试）');
+    process.exit(1);
+  }
+  return url;
+}

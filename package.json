@@ -1,0 +1,26 @@
+{
+  "name": "bee",
+  "private": true,
+  "version": "0.1.0",
+  "description": "报废品行情信息平台 —— 数据底座与规范化报价库（P0-1 定稿实现）",
+  "packageManager": "pnpm@12.15.0",
+  "engines": {
+    "node": ">=20.9"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @bee/web dev",
+    "build": "pnpm --filter @bee/web build",
+    "start": "pnpm --filter @bee/web start",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "pnpm --filter @bee/db generate",
+    "db:migrate": "pnpm --filter @bee/db migrate",
+    "db:seed": "pnpm --filter @bee/db seed"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
+  }
+}
