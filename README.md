@@ -32,7 +32,7 @@
 apps/
   web/                 # Next.js 站点骨架（P0-1：数据底座状态页；P0-4：简报页落此处）
 packages/
-  db/                  # 核心：drizzle schema（21 表）+ 迁移 + 种子 + 集成测试
+  db/                  # 核心：drizzle schema（23 表）+ 迁移 + 种子 + 集成测试
   core/                # 跨端契约：溯源响应、管线 step 契约、计价单位换算
   pipeline/            # 管线地基（台账 helper + P0-3 约定）；采集与校验在 P0-3 落地
 docs/
