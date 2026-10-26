@@ -3,10 +3,12 @@
 给中国再生资源行业中小从业者（回收站、废品贸易商）的**每天可信的日频报价与行情简报**。
 产品三块能力（行情简报 / 情景推演 / 行业问答）全部建在本仓库的**规范化报价库**之上。
 
-- 产品背景与已批准的 MRD/PRD：Paperclip DAW-27
+- **产品 MRD/PRD（研发基准）：[`docs/mrd-prd.md`](docs/mrd-prd.md)** —— 已批准 v1.0，来源 Paperclip DAW-27
 - 本骨架是 **P0-1（DAW-28）** 的交付：技术选型决策记录 + 数据模型定稿 + 可本地起服务的仓库骨架
 - 数据模型全文：[`docs/data-model.md`](docs/data-model.md)
 - 技术选型决策记录（ADR）：[`docs/adr/`](docs/adr/)
+- 口径字典与公开来源调研：[`docs/DAW-29-calibration-dictionary-v1.md`](docs/DAW-29-calibration-dictionary-v1.md)
+- 合规门禁（备案材料已按 MRD/PRD §14 暂缓，仅保留采集 robots/ToS 速查）：[`docs/compliance/`](docs/compliance/)
 
 ## 架构一图
 
@@ -34,6 +36,7 @@ packages/
   core/                # 跨端契约：溯源响应、管线 step 契约、计价单位换算
   pipeline/            # 管线地基（台账 helper + P0-3 约定）；采集与校验在 P0-3 落地
 docs/
+  mrd-prd.md           # 产品 MRD/PRD（研发基准，已批准 v1.0）
   data-model.md        # 数据模型定稿（交付物 2–6 的字段级定义 + 溯源/回放设计）
   adr/                 # 技术选型决策记录（0001–0008）
 ```
