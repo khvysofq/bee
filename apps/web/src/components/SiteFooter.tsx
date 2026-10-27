@@ -8,6 +8,7 @@ import {
   STATS_SOURCE_CODE,
 } from '@/lib/compliance';
 import type { LandingData } from '@/lib/landing-data';
+import type { MarketOverview } from '@/lib/market-overview';
 import { formatUpdateTime } from '@/lib/presentation';
 import { Wordmark } from './Brand';
 
@@ -36,6 +37,16 @@ export function footerInfoFromLanding(data: LandingData): FooterInfo {
     hasStatsSource: data.hasStatsSource,
     statsSourceUrl: data.statsSourceUrl,
     latestQuoteDate: data.latestQuoteDate,
+    updatedAt: data.dataCutoffAt,
+  };
+}
+
+export function footerInfoFromOverview(data: MarketOverview): FooterInfo {
+  return {
+    hasFixtureSource: data.hasFixtureSource,
+    hasStatsSource: data.hasStatsSource,
+    statsSourceUrl: data.statsSourceUrl,
+    latestQuoteDate: data.globalLatest,
     updatedAt: data.dataCutoffAt,
   };
 }
