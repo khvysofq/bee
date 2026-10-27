@@ -211,7 +211,10 @@ export function LandingView(props: { data: LandingData; dataUnavailable?: boolea
                 <QaIcon />
                 <span className="entry-label">03 / Q&amp;A</span>
               </div>
-              <span className="badge badge-soon">筹备中</span>
+              <span className="badge badge-live">
+                <span className="pulse" aria-hidden="true" />
+                可提问
+              </span>
             </header>
             <h2 className="entry-title" id="entry-qa-title">
               <a href="/qa">行业问答</a>

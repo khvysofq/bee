@@ -241,9 +241,11 @@ function titleNgrams(title: string): string[] {
  *  - 结构化字段：问题解析出的品类与条目 categoryCode 相同 → +2.5；
  *  - 标题重合：问题里出现条目标题的 ≥3 字连续片段 → 每段 +1（最多 +3）。
  *
- * 关键词与品类**一项都没命中**的条目直接淘汰：标题重合只是加分项，不能单独把条目送进答案。
- * 否则「你们公司地址在哪里」会因为「在哪里」撞上「价格锚在哪里」这种标题而硬凑出一个答案，
- * 违反「没有依据就不回答」。
+ * 词条要想进答案，**必须至少命中一个关键词**。品类与标题重合都只是加分项，不能单独构成依据：
+ *  - 标题重合单独送答案 →「你们公司地址在哪里」会撞上「价格锚在哪里」；
+ *  - 品类单独送答案 →「航空母舰钢板怎么回收」解析出废钢，就会被硬塞两条废钢说明，
+ *    还配「站内说明里有明确答案」——问题是答非所问，标题就在说谎。
+ * 没有关键词命中就返回空，由回答层说「没有依据」，这比硬凑一个答案诚实。
  */
 export function retrieveKnowledge(
   parsed: ParsedQuestion,
@@ -266,8 +268,8 @@ export function retrieveKnowledge(
     }
     const categoryMatched = Boolean(parsed.category?.code) && entry.categoryCode === parsed.category?.code;
     if (categoryMatched) score += 2.5;
-    // 关键词与品类都没命中 → 淘汰，标题重合不足以构成依据。
-    if (matched.length === 0 && !categoryMatched) continue;
+    // 必须至少命中一个关键词：品类命中、标题重合都只是加分项，不能单独把条目送进答案。
+    if (matched.length === 0) continue;
 
     const grams = [...new Set(titleNgrams(entry.title))].filter(
       (gram) => gram.length >= 3 && normalized.includes(gram),

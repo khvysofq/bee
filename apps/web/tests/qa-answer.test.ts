@@ -171,9 +171,12 @@ describe('GUA-35 确定性检索', () => {
       second.map((hit) => [hit.entry.id, hit.score]),
     );
     expect(parseQuestion(question)).toEqual(parseQuestion(question));
-    // 「多少钱一吨」同时命中计价单位与废钢分级两条，排序稳定且都在阈值之上。
-    expect(first.map((hit) => hit.entry.id)).toEqual(['kb-unit-ton', 'kb-steel-grades', 'kb-steel-impurity']);
-    expect(first.map((hit) => hit.score)).toEqual([5, 4.5, 2.5]);
+    // 「多少钱一吨」命中计价单位，「重废」命中废钢分级，两条都有关键词依据，排序稳定。
+    // 「废钢的杂质和水分怎么扣」原先只靠品类命中也进了答案（2.5 分 = 品类加分本身），
+    // 问价的问题被塞进扣杂扣水的说明，属于硬凑，已按「关键词必须命中」淘汰。
+    expect(first.map((hit) => hit.entry.id)).toEqual(['kb-unit-ton', 'kb-steel-grades']);
+    expect(first.map((hit) => hit.score)).toEqual([5, 4.5]);
+    expect(first.every((hit) => hit.matched.length > 0)).toBe(true);
   });
 
   it('同义词与最长命中：黄板纸=箱板纸，统废=统料，光亮铜线不被「铜」抢走', () => {
@@ -225,6 +228,19 @@ describe('GUA-35 确定性检索', () => {
     for (const hit of retrieveKnowledge(parseQuestion('重废和中废怎么分'))) {
       expect(hit.score).toBeGreaterThanOrEqual(RETRIEVAL_MIN_SCORE);
     }
+  });
+
+  it('品类命中不足以构成依据：关键词一条都没中就返回空', () => {
+    // 「钢板」被解析成废钢品类，但没有任何知识条目关键词命中。
+    // 品类单独把废钢说明送进答案，配「站内说明里有明确答案」就是答非所问。
+    expect(parseQuestion('航空母舰钢板怎么回收').category?.code).toBe('scrap-steel');
+    expect(retrieveKnowledge(parseQuestion('航空母舰钢板怎么回收'))).toEqual([]);
+    expect(retrieveKnowledge(parseQuestion('钢板多少钱'))).toEqual([]);
+
+    // 真问到条目内容时照常命中，不受这条规则影响。
+    const grades = retrieveKnowledge(parseQuestion('重废和中废怎么分'));
+    expect(grades.map((hit) => hit.entry.id)).toContain('kb-steel-grades');
+    expect(grades.every((hit) => hit.matched.length > 0)).toBe(true);
   });
 
   it('常识型问题命中对应条目', () => {
@@ -474,6 +490,17 @@ describe('GUA-35 降级路径（没有模型凭据）', () => {
     expect(answer.narrative).toEqual(UNKNOWN_NARRATIVE);
     expect(answer.knowledge).toEqual([]);
     expect(answer.facts).toEqual([]);
+    expect(answer.aiAssisted).toBe(false);
+    expectProseClean(answer);
+  });
+
+  it('只踩中品类的问题不算「有明确答案」，不给答非所问的条目', async () => {
+    // 「航空母舰钢板怎么回收」会解析出废钢品类，但站内没有任何条目回答它。
+    // 先前品类命中就把废钢分级/扣杂扣水两条塞进来，标题还写「站内说明里有明确答案」。
+    const answer = await answerQuestion('航空母舰钢板怎么回收', { env: NO_LLM_ENV });
+    expect(answer.knowledge).toEqual([]);
+    expect(answer.headline).toBe('这个问题我们没有依据回答');
+    expect(answer.headline).not.toBe('站内说明里有明确答案');
     expect(answer.aiAssisted).toBe(false);
     expectProseClean(answer);
   });

@@ -381,6 +381,13 @@ describe('GUA-33 首页：三区首屏', () => {
     expect(html).toContain('品类与规格');
   });
 
+  it('行业问答入口不再标「筹备中」：问答已上线，标「可提问」', () => {
+    const qaCard = html.slice(html.indexOf('entry-qa'), html.indexOf('home-strip'));
+    expect(qaCard).toContain('可提问');
+    expect(qaCard).not.toContain('筹备中');
+    expect(qaCard).not.toContain('即将开放');
+  });
+
   it('首页主报价来自传入数据：中值、区间口径标签、真实涨跌方向（涨红 / 跌绿）', () => {
     expect(html).toContain('2,387.5');
     expect(html).toContain('68,600');
