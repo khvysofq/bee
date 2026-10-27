@@ -48,6 +48,10 @@ export function SiteHeader(props: { searchItems: SearchItem[] }) {
             })}
           </nav>
           <div className="header-tools">
+            <span className="w-live" title="日频报价 · 服务端直出">
+              <span className="w-live-dot" aria-hidden="true" />
+              LINK · 日频
+            </span>
             <HeaderSearch items={props.searchItems} />
             <button className="header-qa" type="button" onClick={() => setQaOpen(true)}>
               问一问
