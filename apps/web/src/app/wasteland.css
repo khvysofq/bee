@@ -251,6 +251,24 @@ body::after {
   );
 }
 
+/* 两端淡出：用与底板同色的渐变盖住滚动到边缘的字，
+   而不是对整个条做 mask —— mask 会连深色底板一起透掉，
+   边缘会漏出页面砂色，看起来像脏污。 */
+.w-ticker::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    var(--color-graphite-2) 0,
+    transparent 72px,
+    transparent calc(100% - 72px),
+    var(--color-graphite-2) 100%
+  );
+}
+
 .w-ticker-track {
   position: relative;
   z-index: 1;
