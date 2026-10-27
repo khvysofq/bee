@@ -131,17 +131,24 @@
 .qa-fab {
   position: fixed;
   z-index: calc(var(--z-drawer) - 1);
-  right: 0;
+  /* 离右边缘留 8px：竖向标签的文字整体落在 16px 处，
+     不被覆盖式滚动条压住，也仍处于页面右侧留白内。 */
+  right: var(--space-2);
   top: 50%;
   transform: translateY(-50%);
-  padding: var(--space-3) var(--space-2);
+  padding: var(--space-4) var(--space-2);
   border: 0;
+  border-radius: var(--radius-xs);
   background: var(--color-graphite);
   color: var(--color-signal);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
-  letter-spacing: var(--tracking-wider);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-wide);
   writing-mode: vertical-rl;
+  text-orientation: upright;
+  white-space: nowrap;
+  overflow: visible;
   cursor: pointer;
   border-left: var(--hairline) solid var(--color-signal-deep);
 }
