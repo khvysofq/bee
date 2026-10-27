@@ -11,7 +11,8 @@
     "fixture": "tsx scripts/run-fixture.ts",
     "stats": "tsx scripts/run-stats.ts",
     "exchange": "tsx scripts/run-exchange.ts",
-    "intl": "tsx scripts/run-intl.ts"
+    "intl": "tsx scripts/run-intl.ts",
+    "report": "tsx scripts/series-report.ts"
   },
   "dependencies": {
     "@bee/core": "workspace:*",
