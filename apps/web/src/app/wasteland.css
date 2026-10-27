@@ -472,11 +472,34 @@ body::after {
 
 /* ---------- 4. 图表画线 / 流动光点 ---------- */
 
-.spark-line,
+/* 大图是 <path>，pathLength=1 能让 dasharray 归一，画线正常。
+   列表迷你线是 <polyline> + preserveAspectRatio=none，Chrome 不按
+   pathLength 归一一个单位 dash（会画成一串虚线）；clip-path 在这种
+   拉伸 viewBox 上也不可靠。改用「远大于路径长度的 dash」做擦除：
+   viewBox 128×30 下路径长约 140 单位，400 一定盖满，缩放后依然成立。 */
 .t-chart-line {
   stroke-dasharray: 1;
   stroke-dashoffset: 0;
   animation: chart-draw var(--chart-draw-duration) var(--ease-out) both;
+}
+
+.spark-line {
+  stroke-dasharray: none;
+}
+
+/* 只给首屏前 12 行做画线，再往下的行全部静态，避免上百个动画同时跑。 */
+.t-table tbody tr:nth-child(-n + 12) .spark-line {
+  stroke-dasharray: 400;
+  animation: spark-draw 700ms var(--ease-out) both;
+}
+
+@keyframes spark-draw {
+  from {
+    stroke-dashoffset: 400;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 @keyframes chart-draw {
@@ -620,8 +643,10 @@ body::after {
   .w-live-dot::after,
   .t-board,
   .t-detail-grid > *,
-  .entry-grid > .entry {
+  .entry-grid > .entry,
+  .t-table tbody tr:nth-child(-n + 12) .spark-line {
     animation: none !important;
+    stroke-dasharray: none;
   }
 
   .w-sweep,
