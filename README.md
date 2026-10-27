@@ -62,7 +62,7 @@ pnpm db:seed                     # 4. 种子口径字典草案（5 品类 + 地�
 pnpm data:stats                  # 5. 抓取最新一期统计局旬报（真实源；加 --snapshot 可离线回放）
 pnpm series:exchange --from 2024-10-27 --to 2026-10-27   # 5b. 交易所日行情回填（期货，天频）
 pnpm dev                         # 6. 开发：http://localhost:3000
-pnpm --filter @bee/web exec next start -p 22081   # 生产预览：http://localhost:22081（或跑 scripts/serve.sh）
+pnpm --filter @bee/web exec next start -p 10800   # 生产预览：http://localhost:10800（或跑 scripts/serve.sh）
 pnpm test                        # 验收测试（需 DATABASE_URL 指向可建库的账号）
 ```
 
