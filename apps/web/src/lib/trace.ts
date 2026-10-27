@@ -226,3 +226,99 @@ export async function loadIndicatorTrace(
 
   return traceIndicatorResponseSchema.parse(trace);
 }
+
+export interface SeriesPointTrace {
+  kind: 'series_point';
+  point: {
+    id: string;
+    seriesCode: string;
+    seriesName: string;
+    venue: string | null;
+    instrumentCode: string;
+    obsDate: string;
+    revision: number;
+    value: number;
+    unit: string | null;
+    currency: string;
+  };
+  source: {
+    code: string;
+    name: string;
+    type: string;
+    trustWeight: number;
+  };
+  url: string;
+  fetchedAt: string;
+  contentSha256: string;
+  sourceRowIndex: number;
+  archiveViewerUrl: string;
+}
+
+/**
+ * 时序点溯源：series_point → 原始抓取（URL / 时间 / 内容指纹）。
+ *
+ * 与 daily_quote 的溯源契约保持同一组字段（source / url / fetchedAt / contentSha256 /
+ * archiveViewerUrl），但 kind 独立，前端可复用同一块展开面板。
+ */
+export async function loadSeriesPointTrace(
+  pointId: string,
+  database: BeeDb = defaultDb,
+): Promise<SeriesPointTrace | null> {
+  const [row] = await database
+    .select({
+      id: dbSchema.seriesPoint.id,
+      obsDate: dbSchema.seriesPoint.obsDate,
+      revision: dbSchema.seriesPoint.revision,
+      value: dbSchema.seriesPoint.value,
+      sourceRowIndex: dbSchema.seriesPoint.sourceRowIndex,
+      seriesCode: dbSchema.marketSeries.code,
+      seriesName: dbSchema.marketSeries.nameCn,
+      venue: dbSchema.marketSeries.venue,
+      instrumentCode: dbSchema.marketSeries.instrumentCode,
+      currency: dbSchema.marketSeries.currency,
+      unit: dbSchema.unit.nameCn,
+      sourceCode: dbSchema.source.code,
+      sourceName: dbSchema.source.name,
+      sourceType: dbSchema.source.type,
+      trustWeight: dbSchema.source.trustWeight,
+      url: dbSchema.rawFetch.url,
+      fetchedAt: dbSchema.rawFetch.fetchedAt,
+      contentSha256: dbSchema.rawFetch.contentSha256,
+      fetchId: dbSchema.rawFetch.id,
+    })
+    .from(dbSchema.seriesPoint)
+    .innerJoin(dbSchema.marketSeries, eq(dbSchema.marketSeries.id, dbSchema.seriesPoint.seriesId))
+    .innerJoin(dbSchema.unit, eq(dbSchema.unit.id, dbSchema.marketSeries.unitId))
+    .innerJoin(dbSchema.source, eq(dbSchema.source.id, dbSchema.seriesPoint.sourceId))
+    .innerJoin(dbSchema.rawFetch, eq(dbSchema.rawFetch.id, dbSchema.seriesPoint.fetchId))
+    .where(eq(dbSchema.seriesPoint.id, pointId));
+
+  if (!row) return null;
+
+  return {
+    kind: 'series_point',
+    point: {
+      id: row.id,
+      seriesCode: row.seriesCode,
+      seriesName: row.seriesName,
+      venue: row.venue,
+      instrumentCode: row.instrumentCode,
+      obsDate: row.obsDate,
+      revision: row.revision,
+      value: numberRequired(row.value, 'series_point.value'),
+      unit: row.unit ?? null,
+      currency: row.currency,
+    },
+    source: {
+      code: row.sourceCode,
+      name: row.sourceName,
+      type: row.sourceType,
+      trustWeight: numberRequired(row.trustWeight, 'source.trust_weight'),
+    },
+    url: row.url,
+    fetchedAt: isoRequired(row.fetchedAt, 'raw_fetch.fetched_at'),
+    contentSha256: row.contentSha256,
+    sourceRowIndex: row.sourceRowIndex,
+    archiveViewerUrl: `/internal/raw/${row.fetchId}`,
+  };
+}
