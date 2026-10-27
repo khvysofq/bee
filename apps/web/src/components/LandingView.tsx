@@ -128,6 +128,7 @@ export function LandingView(props: { data: LandingData; dataUnavailable?: boolea
 
         <div className="entry-grid">
           <article className="entry entry-market" aria-labelledby="entry-market-title">
+            <span className="w-sweep" aria-hidden="true" />
             <header className="entry-head">
               <div className="entry-id">
                 <MarketIcon />

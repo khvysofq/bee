@@ -67,6 +67,8 @@ export default async function HomePage(props: { searchParams: Promise<HomeSearch
     <main className="terminal">
       <div className="shell">
         <section className="t-board" aria-labelledby="home-title">
+          <span className="w-sweep" aria-hidden="true" />
+          <span className="w-radar" aria-hidden="true" />
           <div>
             <p className="t-eyebrow">BEE / MARKET TERMINAL</p>
             <h1 id="home-title">行情总览</h1>
@@ -94,6 +96,8 @@ export default async function HomePage(props: { searchParams: Promise<HomeSearch
             </div>
           </dl>
         </section>
+
+        <div className="w-rail w-rail-inline" aria-hidden="true" />
 
         <OverviewView data={data} initialQuery={query} initialCategory={category} />
       </div>

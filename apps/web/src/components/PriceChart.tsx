@@ -9,7 +9,7 @@ import { formatNumber, seriesChange } from '@/lib/presentation';
  *
  * 只连接真实存在的观测点：不插值、不补日期。范围切换是前端切片，
  * 数据本身仍来自 series_point / daily_quote。
- * 线用中性色，荧光信号绿只出现在末点与 hover 十字线（标记/交互，不表达涨跌）。
+ * 线用中性色，琥珀磷光只出现在末点、hover 十字线与流动光点（标记/交互，不表达涨跌）。
  */
 
 const RANGES = [
@@ -209,8 +209,12 @@ export function PriceChart(props: {
             ))}
 
             <g clipPath={`url(#${clipId})`}>
-              <path className="t-chart-area" d={area} />
-              <path className="t-chart-line" d={line} />
+              <path key={`area-${range}`} className="t-chart-area" d={area} />
+              <path key={`line-${range}`} className="t-chart-line" d={line} pathLength={1} />
+              {/* 沿线流动的磷光点：SMIL 沿真实路径循环，纯视觉，aria-hidden。 */}
+              <circle key={`flow-${range}`} className="t-chart-flow" r={2.5} aria-hidden="true">
+                <animateMotion dur="7s" repeatCount="indefinite" path={line} />
+              </circle>
             </g>
 
             <circle

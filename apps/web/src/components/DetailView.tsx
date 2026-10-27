@@ -111,6 +111,7 @@ export function DetailView(props: { detail: MarketDetail; footer: FooterInfo }) 
 
         <div className="t-detail-grid">
           <section className="t-detail-main" aria-labelledby="detail-title">
+            <span className="w-sweep" aria-hidden="true" />
             <div className="t-detail-head">
               <div>
                 <p className="t-eyebrow">{isQuote ? 'PUBLISHED QUOTE' : 'MARKET SERIES'}</p>
@@ -230,6 +231,8 @@ export function DetailView(props: { detail: MarketDetail; footer: FooterInfo }) 
           </aside>
         </div>
 
+        <div className="w-rail" aria-hidden="true" />
+
         <section className="t-section" aria-labelledby="peers-title">
           <div className="t-section-head">
             <h2 id="peers-title">分层对比 · 同品类</h2>
@@ -247,6 +250,8 @@ export function DetailView(props: { detail: MarketDetail; footer: FooterInfo }) 
             </div>
           )}
         </section>
+
+        <div className="w-rail" aria-hidden="true" />
 
         <section className="t-section" aria-labelledby="recent-title">
           <div className="t-section-head">

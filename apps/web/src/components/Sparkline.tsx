@@ -54,7 +54,12 @@ export function Sparkline(props: {
         </>
       ) : null}
       {trend.length > 1 ? (
-        <polyline className="spark-line" points={points} vectorEffect="non-scaling-stroke" />
+        <polyline
+        className="spark-line"
+        points={points}
+        pathLength={1}
+        vectorEffect="non-scaling-stroke"
+      />
       ) : null}
       <circle className="spark-dot" cx={lastX} cy={lastY} r={2.6} />
     </svg>

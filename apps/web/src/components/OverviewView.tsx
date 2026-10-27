@@ -222,6 +222,8 @@ export function OverviewView(props: {
         </div>
       </div>
 
+      <div className="w-rail w-rail-inline" aria-hidden="true" />
+
       {scope === 'regional' && rows.length === 0 ? (
         <RegionalEmpty regions={data.regions} />
       ) : rows.length === 0 ? (
