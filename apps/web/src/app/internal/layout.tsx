@@ -17,6 +17,7 @@ export default function InternalLayout({ children }: { children: React.ReactNode
         </div>
         <nav className="internal-nav" aria-label="内部导航">
           <Link href="/internal/ops">每日巡检</Link>
+          <Link href="/internal/jobs">任务管理</Link>
           <Link href="/internal/status">数据状态</Link>
           <Link href="/">返回用户站</Link>
         </nav>
