@@ -28,7 +28,7 @@ const H = 300;
  * 左右留白按最长轴标签预留：左侧要放下「15,800」这类带千分位的读数，
  * 右侧要放下「2026-10」这类完整月份，避免文字被 viewBox 裁掉。
  */
-const PAD = { left: 64, right: 18, top: 16, bottom: 34 };
+const PAD = { left: 64, right: 30, top: 16, bottom: 34 };
 const Y_INTERVALS = 4;
 
 function sliceByRange(points: MarketSparkPoint[], range: RangeKey): MarketSparkPoint[] {
@@ -186,7 +186,7 @@ export function PriceChart(props: {
               </g>
             ))}
 
-            {xTicks.map((tick) => (
+            {xTicks.map((tick, index) => (
               <g key={`${tick.label}-${tick.x}`}>
                 <line
                   className="t-chart-grid"
@@ -195,7 +195,14 @@ export function PriceChart(props: {
                   y1={PAD.top}
                   y2={PAD.top + plotH}
                 />
-                <text className="t-chart-axis" x={tick.x} y={H - 12} textAnchor="middle">
+                <text
+                  className="t-chart-axis"
+                  x={tick.x}
+                  y={H - 12}
+                  textAnchor={
+                    index === 0 ? 'start' : index === xTicks.length - 1 ? 'end' : 'middle'
+                  }
+                >
                   {tick.label}
                 </text>
               </g>
