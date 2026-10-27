@@ -41,8 +41,8 @@ export async function recordDailyInspection(formData: FormData): Promise<void> {
     await finishRun(db, started.run.id, { status: 'succeeded' });
   }
 
-  revalidatePath('/ops');
-  revalidatePath('/briefing');
+  revalidatePath('/internal/ops');
+  revalidatePath('/market');
 }
 
 export async function resolveException(formData: FormData): Promise<void> {
@@ -65,6 +65,6 @@ export async function resolveException(formData: FormData): Promise<void> {
     })
     .where(and(eq(dbSchema.exceptionQueue.id, id), eq(dbSchema.exceptionQueue.status, 'open')));
 
-  revalidatePath('/ops');
-  revalidatePath('/briefing');
+  revalidatePath('/internal/ops');
+  revalidatePath('/market');
 }

@@ -1,264 +1,260 @@
-import { TraceNumber } from '@/components/TraceNumber';
-import type { ChangeView } from '@/lib/briefing-data';
-import type { LandingCategory, LandingData, TrendPoint } from '@/lib/landing-data';
+import { ArrowRight, MarketIcon, OutlookIcon, QaIcon } from '@/components/icons';
+import { SiteFooter, footerInfoFromLanding } from '@/components/SiteFooter';
+import { Sparkline } from '@/components/Sparkline';
+import type { LandingCategory, LandingData, LandingQuote } from '@/lib/landing-data';
 import {
-  AI_LABEL,
-  AI_LABEL_ID,
-  BRIEF_DISCLAIMER,
-  BRIEF_DISCLAIMER_ID,
-  CONTENT_POLICY_ID,
-  DATA_SOURCE_NOTE,
-  FIXTURE_NOTICE,
-  STATS_ATTRIBUTION,
-  STATS_COMPLIANCE_NOTE,
-} from '@/lib/compliance';
+  arrowOf,
+  directionOf,
+  formatNumber,
+  formatUpdateTime,
+  signedPct,
+  seriesChange,
+} from '@/lib/presentation';
 
 /**
- * 落地页展示层（GUA-26 / P0-6）：纯展示组件，不接数据库 —— 数据全部由
- * loadLandingData（复用 loadBriefing 查询逻辑）传入，页面数字与 DB 一一对应。
- * 样式全部收敛在 .lp-root 命名空间（globals.css），不影响 /briefing、/ops 既有视觉。
+ * 首页（GUA-33）：首屏三区 —— 行情数据 / 趋势推演 / 行业问答。
+ * 全部数字来自 loadLandingData（daily_quote 已发布定档），无手写价格、无补全数据。
+ * 对外不暴露溯源交互、来源列表、内部路由与工程术语；可信度只呈现为结论。
  */
 
-function fmt(value: number): string {
-  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value);
-}
-
-function fmtDateTime(value: string | null): string {
-  if (!value) return '—';
-  return value.replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
-}
-
-function ChangeBadge(props: { change: ChangeView | null; label: string; quoteId: string }) {
-  if (!props.change) {
-    return (
-      <span className="lp-change lp-change-none" title={`没有${props.label}的可比定档报价（缺失不当作持平）`}>
-        —
-      </span>
-    );
-  }
-  const direction = props.change.pct > 0 ? 'up' : props.change.pct < 0 ? 'down' : 'flat';
-  const arrow = direction === 'up' ? '▲' : direction === 'down' ? '▼' : '◆';
-  const word = direction === 'up' ? '上涨' : direction === 'down' ? '下跌' : '持平';
+function QuoteRow(props: { category: LandingCategory }) {
+  const { category } = props;
+  const quote = category.representative;
+  if (!quote) return null;
+  const change = quote.dailyChange;
+  const direction = change ? directionOf(change.pct) : 'none';
   return (
-    <span
-      className={`lp-change lp-change-${direction}`}
-      title={`${props.label}（${props.change.quoteDate} 中值 ${fmt(props.change.previousValue)} 元/吨）：${word} ${Math.abs(props.change.pct).toFixed(2)}%`}
-    >
-      <TraceNumber
-        kind="quote"
-        id={props.quoteId}
-        label={`查看${props.label}涨跌计算依据与溯源`}
-        className="lp-trace-inline"
-      >
-        {arrow} {props.change.pct > 0 ? '+' : ''}
-        {props.change.pct.toFixed(2)}%
-      </TraceNumber>
-    </span>
-  );
-}
-
-/** 近 N 天走势 sparkline：纯 SVG（不引图表库），点位 = daily_quote 已发布定档中值。 */
-function Sparkline(props: { trend: TrendPoint[]; title: string }) {
-  const { trend } = props;
-  if (trend.length === 0) {
-    return <p className="lp-spark-empty">该口径暂无走势序列（历史定档不足）。</p>;
-  }
-  const W = 132;
-  const H = 40;
-  const PAD = 5;
-  const values = trend.map((point) => point.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min;
-  const first = trend[0]!;
-  const last = trend[trend.length - 1]!;
-  const direction = last.value > first.value ? 'up' : last.value < first.value ? 'down' : 'flat';
-  const xAt = (index: number): number =>
-    trend.length === 1 ? W / 2 : PAD + (index * (W - 2 * PAD)) / (trend.length - 1);
-  const yAt = (value: number): number => (span === 0 ? H / 2 : H - PAD - ((value - min) * (H - 2 * PAD)) / span);
-  const points = trend.map((point, index) => `${xAt(index).toFixed(1)},${yAt(point.value).toFixed(1)}`).join(' ');
-  const detail = trend.map((point) => `${point.date}：${fmt(point.value)} 元/吨`).join('\n');
-  return (
-    <div className={`lp-spark lp-spark-${direction}`} role="img" aria-label={`${props.title}（近 ${trend.length} 个定档日）`}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" aria-hidden="true">
-        <title>{`${props.title}\n${detail}`}</title>
-        {trend.length > 1 ? (
-          <polyline className="lp-spark-line" points={points} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-        ) : null}
-        {trend.map((point, index) => (
-          <circle
-            key={point.date}
-            className={index === trend.length - 1 ? 'lp-spark-dot lp-spark-dot-last' : 'lp-spark-dot'}
-            cx={xAt(index)}
-            cy={yAt(point.value)}
-            r={index === trend.length - 1 ? 3 : 2}
+    <div className="quote-row">
+      <div>
+        <span className="quote-name">{category.name}</span>
+        <span className="quote-spec">
+          {quote.specName} · {quote.regionName} · {quote.priceTypeLabel}
+        </span>
+      </div>
+      <div className="quote-price">
+        {formatNumber(quote.valueMid)}
+        <small>元/吨</small>
+      </div>
+      <div className={`quote-change ${direction}`}>
+        {change ? (
+          <>
+            <span aria-hidden="true">{arrowOf(directionOf(change.pct))}</span> {signedPct(change.pct)}
+          </>
+        ) : (
+          <span className="quote-change-none">—</span>
+        )}
+      </div>
+      <div className="quote-spark">
+        {category.trend.length > 1 ? (
+          <Sparkline
+            trend={category.trend}
+            title={`${category.name} ${quote.specName} ${quote.regionName} 中值走势`}
+            tone="dark"
+            width={88}
+            height={26}
           />
-        ))}
-      </svg>
-      <span className="lp-spark-range">
-        {first.date} → {last.date} · {trend.length} 个定档日
-      </span>
+        ) : category.trend.length === 1 ? (
+          <Sparkline
+            trend={category.trend}
+            title={`${category.name} ${quote.specName} ${quote.regionName} 中值走势，序列积累中`}
+            tone="dark"
+            width={88}
+            height={26}
+          />
+        ) : (
+          <span className="quote-spark-empty" aria-hidden="true" />
+        )}
+      </div>
     </div>
   );
 }
 
-function CategoryCard(props: { category: LandingCategory }) {
-  const { category } = props;
-  const quote = category.representative;
-  return (
-    <article className="lp-card" id={`lp-card-${category.code}`}>
-      <header className="lp-card-head">
-        <h3>{category.name}</h3>
-        <a className="lp-card-more" href={`/briefing#category-${category.code}`}>
-          完整报价与溯源 →
-        </a>
-      </header>
-      {quote ? (
-        <>
-          <p className="lp-price">
-            <TraceNumber
-              kind="quote"
-              id={quote.id}
-              label={`${category.name} ${quote.specName} ${quote.regionName} ${quote.priceTypeLabel}定档报价溯源`}
-              className="lp-trace-price"
-            >
-              {fmt(quote.valueMid)}
-            </TraceNumber>
-            <span className="lp-unit">元/吨</span>
-          </p>
-          <p className="lp-range">
-            区间 {fmt(quote.valueLow)} – {fmt(quote.valueHigh)} · {quote.priceTypeLabel}
-          </p>
-          <p className="lp-rep">
-            {quote.specName} · {quote.regionName}
-            {quote.regionLevel === 'city' ? '（城市）' : '（市场）'} · 报价日 {quote.quoteDate}
-          </p>
-          <div className="lp-changes">
-            <div className="lp-change-cell">
-              <span className="lp-change-label">日涨跌</span>
-              <ChangeBadge change={quote.dailyChange} label="较上一交易日" quoteId={quote.id} />
-            </div>
-            <div className="lp-change-cell">
-              <span className="lp-change-label">周涨跌</span>
-              <ChangeBadge change={quote.weeklyChange} label="较上周" quoteId={quote.id} />
-            </div>
-          </div>
-          <Sparkline
-            trend={category.trend}
-            title={`${category.name} ${quote.specName} ${quote.regionName} ${quote.priceTypeLabel}中值走势`}
-          />
-          <p className="lp-card-foot">
-            今日定档 {category.latestQuoteCount} 条 · 置信度 {quote.confidence} · 点击数字可溯源
-          </p>
-        </>
-      ) : (
-        <p className="lp-card-empty">今日无已发布报价（缺失不当作持平）。</p>
-      )}
-    </article>
-  );
+function marketSummary(data: LandingData): string {
+  const available = data.categories.filter((category) => category.representative);
+  if (available.length === 0) return '今日还没有已发布报价。数据更新后自动出现；缺失不当作持平。';
+  const missing = data.categories.length - available.length;
+  return missing > 0
+    ? `今日 ${available.length} 个品类有报价，${missing} 个暂无；缺失不当作持平。`
+    : `今日 ${available.length} 个品类均有报价；涨跌按上一交易日中值。`;
 }
 
-export function LandingView(props: { data: LandingData }) {
+export function LandingView(props: { data: LandingData; dataUnavailable?: boolean }) {
   const { data } = props;
-  const categoryNames = data.categories.map((category) => category.name).join('、');
+  const quoted = data.categories.filter((category) => category.representative).slice(0, 4);
+  const previewCategory =
+    data.categories.find((category) => category.trend.length > 1) ??
+    data.categories.find((category) => category.trend.length > 0) ??
+    null;
+  const previewTrend = previewCategory?.trend ?? [];
+  const previewChange = seriesChange(previewTrend.map((point) => point.value));
+  const previewQuote: LandingQuote | null = previewCategory?.representative ?? null;
+  const heroUpdated = formatUpdateTime(data.dataCutoffAt);
 
   return (
-    <main className="lp-root">
-      <div className="lp-hero">
-        <div className="lp-hero-inner">
-          <p className="lp-eyebrow">bee · 再生物资行情</p>
-          <h1 className="lp-title">再生材料行情每日简报</h1>
-          <p className="lp-value-prop">
-            {categoryNames || '再生物资'}每日定档报价一屏速览 —— 每个数字都可溯源到原始存档。
+    <main>
+      <div className="shell">
+        <section className="home-hero" aria-labelledby="home-title">
+          <div>
+            <h1 className="hero-title" id="home-title">
+              行情先校准，再读数。
+            </h1>
+            <p className="hero-sub">
+              废钢、废铜、废铝、废纸、废塑料的每日报价、趋势与行业问答 —— 三大功能，一屏直达。
+            </p>
+          </div>
+          <dl className="hero-facts">
+            <div>
+              <dt>报价日</dt>
+              <dd>{data.latestQuoteDate ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>数据更新于</dt>
+              <dd>{heroUpdated}</dd>
+            </div>
+            <div>
+              <dt>有报价品类</dt>
+              <dd>
+                {data.stats.categoriesWithQuotes}/{data.stats.categoryCount}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        {props.dataUnavailable ? (
+          <p className="home-notice" role="status">
+            报价数据暂时无法读取；功能入口仍在，数字不会用估算值替代。
           </p>
-          <p className="lp-hero-meta">
-            <strong>报价日 {data.latestQuoteDate ?? '暂无'}</strong>
-            <span>数据截止 {fmtDateTime(data.dataCutoffAt)}</span>
-            <span>
-              {data.stats.categoriesWithQuotes}/{data.stats.categoryCount} 品类有报价 · {data.stats.quoteCount} 条已发布定档 ·{' '}
-              {data.stats.sourceCount} 个来源
-            </span>
-          </p>
-          <p className="lp-hero-actions">
-            <a className="lp-cta" href="/briefing">
-              查看完整行情简报（逐数溯源）→
+        ) : null}
+
+        <div className="entry-grid">
+          <article className="entry entry-market" aria-labelledby="entry-market-title">
+            <header className="entry-head">
+              <div className="entry-id">
+                <MarketIcon />
+                <span className="entry-label">01 / MARKET</span>
+              </div>
+              <span className="badge badge-live">
+                <span className="pulse" aria-hidden="true" />
+                报价日 {data.latestQuoteDate ?? '待更新'}
+              </span>
+            </header>
+            <h2 className="entry-title" id="entry-market-title">
+              <a href="/market">行情数据</a>
+            </h2>
+            <p className="entry-desc">{marketSummary(data)}</p>
+
+            {quoted.length > 0 ? (
+              <div className="quote-list">
+                {quoted.map((category) => (
+                  <QuoteRow key={category.id} category={category} />
+                ))}
+              </div>
+            ) : (
+              <p className="entry-empty">今日暂无已发布报价。缺失不当作持平，也不会用估算值填充。</p>
+            )}
+
+            <a className="entry-link" href="/market">
+              查看全部行情
+              <ArrowRight />
             </a>
-            <a className="lp-cta-secondary" href="#lp-cards">
-              今日品类速览
+          </article>
+
+          <article className="entry entry-outlook" aria-labelledby="entry-outlook-title">
+            <header className="entry-head">
+              <div className="entry-id entry-id-light">
+                <OutlookIcon />
+                <span className="entry-label">02 / OUTLOOK</span>
+              </div>
+              <span className="badge">历史序列</span>
+            </header>
+            <h2 className="entry-title" id="entry-outlook-title">
+              <a href="/outlook">趋势推演</a>
+            </h2>
+            <p className="entry-desc">看历史序列与推翻条件；分析参考，非预测承诺。</p>
+
+            {previewCategory && previewTrend.length > 1 ? (
+              <figure className="entry-chart">
+                <Sparkline
+                  trend={previewTrend}
+                  title={`${previewCategory.name} ${previewQuote?.specName ?? ''} 中值走势`}
+                  width={320}
+                  height={64}
+                  showGrid
+                />
+                <figcaption>
+                  <span>
+                    {previewCategory.name} · {previewTrend.length} 个报价日
+                  </span>
+                  <span className={`trend-direction ${previewChange?.direction ?? 'flat'}`}>
+                    {previewChange ? `${arrowOf(previewChange.direction)} ${signedPct(previewChange.pct)}` : '—'}
+                  </span>
+                </figcaption>
+              </figure>
+            ) : (
+              <p className="entry-note">历史序列积累中，至少两个报价日后显示走势。当前不生成任何方向判断。</p>
+            )}
+
+            <ul className="fields-inline" aria-label="趋势推演包含的字段">
+              <li>历史走势</li>
+              <li>情景假设</li>
+              <li>推翻条件</li>
+            </ul>
+            <a className="entry-link" href="/outlook">
+              进入趋势推演
+              <ArrowRight />
             </a>
-          </p>
+          </article>
+
+          <article className="entry entry-qa" aria-labelledby="entry-qa-title">
+            <header className="entry-head">
+              <div className="entry-id entry-id-light">
+                <QaIcon />
+                <span className="entry-label">03 / Q&amp;A</span>
+              </div>
+              <span className="badge badge-live">
+                <span className="pulse" aria-hidden="true" />
+                可提问
+              </span>
+            </header>
+            <h2 className="entry-title" id="entry-qa-title">
+              <a href="/qa">行业问答</a>
+            </h2>
+            <p className="entry-desc">行业常识问答：只答有依据的问题，不编造答案。</p>
+            <ul className="topic-list" aria-label="行业问答可以问什么">
+              <li>
+                <span className="topic-index">01</span>品类与规格
+              </li>
+              <li>
+                <span className="topic-index">02</span>报价区间
+              </li>
+              <li>
+                <span className="topic-index">03</span>涨跌计算
+              </li>
+              <li>
+                <span className="topic-index">04</span>数据边界
+              </li>
+            </ul>
+            <p className="entry-note">回答附报价日与数据范围，不编造。</p>
+            <a className="entry-link" href="/qa">
+              看看能问什么
+              <ArrowRight />
+            </a>
+          </article>
+        </div>
+
+        <div className="home-strip">
+          <span>
+            报价日 {data.latestQuoteDate ?? '—'} · 数据更新于 {heroUpdated} · 缺失不当作持平
+          </span>
+          <span className="legend" aria-label="涨跌颜色图例">
+            <span className="legend-up">▲ 涨</span>
+            <span className="legend-down">▼ 跌</span>
+            <span className="legend-flat">◆ 平</span>
+          </span>
         </div>
       </div>
 
-      <div className="lp-body">
-        {data.hasFixtureSource ? (
-          <section className="lp-fixture" role="note" aria-label="Fixture 数据标识">
-            <strong>FIXTURE / 开放数据</strong>
-            <span>{FIXTURE_NOTICE}</span>
-          </section>
-        ) : null}
-        {data.hasStatsSource ? (
-          <section className="lp-stats-note" role="note" aria-label="真实数据来源署名">
-            <strong>真实数据 · 全国参考锚点</strong>
-            <span>
-              {STATS_ATTRIBUTION} · {STATS_COMPLIANCE_NOTE}
-            </span>
-          </section>
-        ) : null}
-
-        {data.empty ? (
-          <section className="lp-empty">
-            <h2>还没有可展示的行情数据</h2>
-            <p>
-              数据管线就绪后本页自动呈现各品类最新定档报价；本页只读取 <code>daily_quote</code> /{' '}
-              <code>derived_indicator</code>，不接受手写价格。
-            </p>
-          </section>
-        ) : null}
-
-        <section className="lp-cards" id="lp-cards" aria-label="品类行情卡片">
-          {data.categories.map((category) => (
-            <CategoryCard key={category.id} category={category} />
-          ))}
-        </section>
-
-        <section className="lp-entry">
-          <h2>想看每个数字从哪来？</h2>
-          <p>
-            完整简报按品类 × 规格 × 地域列出全部已发布定档报价；点击任意价格 / 中值 / 涨跌数字，
-            可展开「定档报价 → 贡献观测 → 原始存档」的完整溯源链。
-          </p>
-          <a className="lp-cta" href="/briefing">
-            进入每日行情简报 →
-          </a>
-        </section>
-
-        <section className="lp-ai-label" aria-label="AI 生成内容标识">
-          <span className="lp-tag">{AI_LABEL_ID}</span>
-          <p>{AI_LABEL}</p>
-        </section>
-
-        <footer className="lp-footer">
-          <h2>免责声明</h2>
-          <p>
-            <strong>{BRIEF_DISCLAIMER_ID}：</strong>
-            {BRIEF_DISCLAIMER}
-          </p>
-          <p className="lp-footer-sources">
-            {[data.hasStatsSource ? STATS_ATTRIBUTION : '', data.hasFixtureSource ? DATA_SOURCE_NOTE : '']
-              .filter(Boolean)
-              .join(' · ') || DATA_SOURCE_NOTE}
-          </p>
-          <p className="lp-footer-policy">
-            内容策略 <code>{CONTENT_POLICY_ID}</code> · 免责声明 <code>{BRIEF_DISCLAIMER_ID}</code> · AI 标识{' '}
-            <code>{AI_LABEL_ID}</code>
-          </p>
-          <p className="lp-footer-links">
-            <a href="/briefing">每日行情简报</a> · <a href="/ops">每日巡检 / 异常队列</a> ·{' '}
-            <a href="/status">数据底座状态</a>
-          </p>
-        </footer>
-      </div>
+      <SiteFooter info={footerInfoFromLanding(data)} />
     </main>
   );
 }

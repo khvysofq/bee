@@ -163,7 +163,7 @@ export async function loadQuoteTrace(
         detail: row.detail,
         at: isoRequired(row.at, 'validation_result.created_at'),
       })),
-      archiveViewerUrl: `/raw/${observation.fetchId}`,
+      archiveViewerUrl: `/internal/raw/${observation.fetchId}`,
     })),
   };
 

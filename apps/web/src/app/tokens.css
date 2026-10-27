@@ -1,0 +1,146 @@
+/* ============================================================
+   bee design tokens —— GUA-33 科技风格重构（v2）
+
+   设计语言：「校准台 / Calibration Bench」。
+   面向回收站与废品贸易商的日频报价工具，界面按精密仪器的
+   读数面板来做：冷瓷底、石墨仪表盘、发丝测量网格；荧光信号
+   绿只用于「已验证 / 可操作」的校准标记，绝不用于涨跌方向。
+   数字是页面唯一的重量，其余结构一律退到发丝线。
+
+   规则：颜色 / 字号 / 间距 / 圆角 / 阴影 / 布局宽度必须引用
+   本文件变量；globals.css 通过 @import 引入，全站唯一样式源。
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* ---------- 色彩：冷瓷底 + 石墨仪表 ---------- */
+  --color-page: #edf1ef;           /* 页面底色：冷瓷（非暖纸） */
+  --color-page-deep: #e3e9e6;      /* 沉底区块 / 表头 */
+  --color-surface: #fbfcfb;        /* 浅色面板 */
+  --color-surface-raised: #ffffff; /* 表格 / 输入控件 */
+  --color-graphite: #101714;       /* 深色仪表盘 */
+  --color-graphite-2: #18211d;     /* 仪表盘内层 */
+  --color-graphite-3: #24332c;     /* 仪表盘描边 / hover */
+  --color-ink: #0d1512;            /* 标题 / 主文字 */
+  --color-ink-2: #303c37;          /* 正文 */
+  --color-muted: #5e6c66;          /* 次级文字（合规文案最低对比档） */
+  --color-faint: #8b9892;          /* 装饰 / 弱化 meta（不承载合规文案） */
+  --color-line: #d5dfdb;           /* 发丝分隔线 */
+  --color-line-strong: #aebdb7;    /* 强调描边 */
+  --color-line-dark: rgba(242, 247, 244, 0.12); /* 石墨底上的发丝线 */
+  --color-grid-dark: rgba(242, 247, 244, 0.045); /* 仪表盘测量网格（极隐） */
+  --color-on-dark: #f2f7f4;        /* 石墨底主文字 */
+  --color-on-dark-muted: #9fb0a8;  /* 石墨底次级文字 */
+  --color-scrim: rgba(13, 21, 18, 0.56);
+
+  /* ---------- 色彩：唯一信号色（校准绿） ---------- */
+  --color-signal: #c9f25b;         /* 高可视信号绿：只用于标记与交互 */
+  --color-signal-deep: #8fb829;    /* 浅底上的信号色文本/线条（可读） */
+  --color-signal-ink: #16200a;     /* 信号绿底上的文字 */
+  --color-signal-soft: rgba(201, 242, 91, 0.16);
+
+  /* ---------- 色彩：行情语义（铁律：涨=红 / 跌=绿 / 平=灰） ---------- */
+  --color-up: #b42318;
+  --color-up-soft: #f8ecea;
+  --color-down: #0b7a4b;
+  --color-down-soft: #e9f4ee;
+  --color-flat: #5e6c66;
+  --color-on-dark-up: #ff8a7d;     /* 石墨底上的涨 */
+  --color-on-dark-down: #4bdd95;   /* 石墨底上的跌 */
+  --color-on-dark-flat: #aab8b1;
+
+  /* ---------- 色彩：状态 ---------- */
+  --color-warn: #7a5300;
+  --color-warn-soft: #f8f0dc;
+  --color-warn-line: #e5d3a4;
+  --color-error: #a3281e;
+  --color-error-soft: #f9ecea;
+  --color-error-line: #e7c4bf;
+
+  /* ---------- 字体：中文结构 + 仪表数字 ---------- */
+  --font-sans: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC',
+    'Noto Sans SC', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Noto Sans SC', ui-monospace, 'SF Mono',
+    'Cascadia Code', 'JetBrains Mono', Consolas, 'Noto Sans Mono CJK SC',
+    monospace;
+
+  /* 字号阶（读数面板：display / 数字 / 正文三档节奏） */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --text-4xl: 38px;
+  --text-5xl: 48px;
+  --display-xl: clamp(42px, 5.2vw, 72px);
+  --display-hero: clamp(38px, 4.1vw, 56px);
+  --display-lg: clamp(34px, 3.6vw, 52px);
+  --display-md: clamp(28px, 2.6vw, 38px);
+  --num-xl: clamp(30px, 3.1vw, 44px);
+  --num-lg: clamp(24px, 2.3vw, 32px);
+  --num-md: 24px;
+  --num-sm: 18px;
+
+  /* 行高 */
+  --leading-none: 1;
+  --leading-tight: 1.08;
+  --leading-snug: 1.28;
+  --leading-normal: 1.6;
+  --leading-relaxed: 1.78;
+
+  /* 字重 */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-black: 800;
+
+  /* 字距 */
+  --tracking-display: -0.035em;
+  --tracking-heading: -0.02em;
+  --tracking-num: -0.01em;
+  --tracking-label: 0.08em;
+
+  /* ---------- 间距阶（4px 基数） ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+  --space-10: 64px;
+  --space-11: 80px;
+  --space-12: 96px;
+  --space-13: 128px;
+
+  /* ---------- 圆角（仪器面板：近乎直角，只有胶囊例外） ---------- */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-pill: 999px;
+
+  /* ---------- 阴影（全站只有一个遮罩阴影；面板靠线与对比分层） ---------- */
+  --shadow-overlay: 0 -24px 64px rgba(13, 21, 18, 0.3);
+  --shadow-focus: 0 0 0 2px var(--color-page), 0 0 0 4px var(--color-signal-deep);
+
+  /* ---------- 布局（结构性数值统一登记） ---------- */
+  --width-page: 1280px;            /* 全站主容器 */
+  --width-reading: 820px;          /* 长文阅读容器 */
+  --width-internal: 1120px;        /* 内部运维页 */
+  --header-height: 64px;
+  --hairline: 1px;
+  --hairline-thick: 2px;
+  --z-overlay: 60;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-fast: 140ms;
+  --duration-base: 220ms;
+}
