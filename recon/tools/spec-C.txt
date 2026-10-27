@@ -1,0 +1,7 @@
+C27-zs-ft-baojia-a1752-y2022	https://zs.fengj.com/ft/baojia/refine/a1752b0y2022m0/
+C28-zs-fl-price-y2020	https://zs.fengj.com/fl/price/0_province_y2020_m0/
+C29-fg-quotesteelprice-a103-y2016	https://fg.fengj.com/quotesteelprice/a103b0c0d0y2016m0/
+C30-info-feiti2	https://info.fengj.com/FeiTi2/
+C31-static-fq-echarts-js	https://static.fengj.com/zs/Script/fq_echarts.js
+C32-static-bxgecharts-js	https://static.fengj.com/js/bxgecharts20221227.js
+C33-zs-ft-charts-ashx-getprobe	https://zs.fengj.com/action/ft/price_charts.ashx

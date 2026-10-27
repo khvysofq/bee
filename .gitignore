@@ -25,3 +25,6 @@ apps/web/AGENTS.md
 
 # 运行代理的本地会话目录
 .claude/
+
+# 勘查样本：第三方页面原文，仅本地留存，不入库（避免再发布与仓库膨胀）
+recon/fengj-samples/

@@ -1,0 +1,4 @@
+E38-zs-fl-home	https://zs.fengj.com/fl/
+E39-zs-fq-home	https://zs.fengj.com/fq/
+E40-zs-fx-home	https://zs.fengj.com/fx/
+E41-zs-xg-metalbaojia	https://zs.fengj.com/xg/metalbaojia/

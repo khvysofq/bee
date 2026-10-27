@@ -1,0 +1,4 @@
+D34-zs-price-echarts-ashx-get	https://zs.fengj.com/action/price_echarts.ashx?class_id=93&num=30
+D35-zs-feizhi-baojia	https://zs.fengj.com/feizhi/baojia/
+D36-zs-fl-zhishu-province	https://zs.fengj.com/fl/zhishu/province/
+D37-zs-sitemap	https://zs.fengj.com/sitemap.xml

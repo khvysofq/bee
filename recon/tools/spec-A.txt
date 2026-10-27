@@ -1,0 +1,12 @@
+A02-fg-home	https://fg.fengj.com/
+A03-zs-fl-price	https://zs.fengj.com/fl/price/copper/
+A04-zs-fq-price	https://zs.fengj.com/fq/price/
+A05-zs-bxg	https://zs.fengj.com/bxg/
+A06-zs-feizhi	https://zs.fengj.com/feizhi/
+A07-info-feisul	https://info.fengj.com/FeiSuL/
+A08-info-feinie	https://info.fengj.com/FeiNie1/
+A09-zs-ft-pricecharts	https://zs.fengj.com/ftpricecharts/ft/
+A10-static-ft-zhishu-js	https://static.fengj.com/zs/Script/ft_zhishu.js
+A11-static-ft-index-js	https://static.fengj.com/zs/Script/ft_index.js
+A12-fg-robots	https://fg.fengj.com/robots.txt
+A13-info-robots	https://info.fengj.com/robots.txt

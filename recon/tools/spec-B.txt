@@ -1,0 +1,13 @@
+B14-static-ft-price-charts-js	https://static.fengj.com/js/ft_price_charts.js
+B15-zs-ftpricecharts-shandong	https://zs.fengj.com/ftpricecharts/ft_shandong/
+B16-zs-fq-echarts	https://zs.fengj.com/fq/echarts/
+B17-zs-ft-baojia-refine-a1752	https://zs.fengj.com/ft/baojia/refine/a1752b0y0m0/
+B18-static-select-date-js	https://static.fengj.com/js/Select_date.js
+B19-essc-market-province-p1	https://essc.fengj.com/list/market_province/o0m64a3k0p1.html
+B20-essc-market-province-p2	https://essc.fengj.com/list/market_province/o0m64a3k0p2.html
+B21-fg-dismantlbaojia-page1	https://fg.fengj.com/Dismantlbaojia-261-1-area-1-0/page1/
+B22-fg-dismantlbaojia-page2	https://fg.fengj.com/Dismantlbaojia-261-1-area-1-0/page2/
+B23-fg-quotesteelprice-a103	https://fg.fengj.com/quotesteelprice/a103b0c0d0y0m0/
+B24-fsl-newprice-class-province	https://fsl.fengj.com/newprice/fsl_class_province/
+B25-info-feixin	https://info.fengj.com/FeiXin/
+B26-ysj-futures-ft	https://ysj.fengj.com/futures/ft/
