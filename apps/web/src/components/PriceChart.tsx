@@ -24,7 +24,12 @@ type RangeKey = (typeof RANGES)[number]['key'];
 
 const W = 760;
 const H = 300;
-const PAD = { left: 58, right: 18, top: 16, bottom: 34 };
+/*
+ * 左右留白按最长轴标签预留：左侧要放下「15,800」这类带千分位的读数，
+ * 右侧要放下「2026-10」这类完整月份，避免文字被 viewBox 裁掉。
+ */
+const PAD = { left: 64, right: 18, top: 16, bottom: 34 };
+const Y_INTERVALS = 4;
 
 function sliceByRange(points: MarketSparkPoint[], range: RangeKey): MarketSparkPoint[] {
   const config = RANGES.find((item) => item.key === range);
@@ -36,6 +41,23 @@ function sliceByRange(points: MarketSparkPoint[], range: RangeKey): MarketSparkP
   const sliced = points.filter((point) => point.date >= cutoff);
   // 范围切完若只剩一个点，仍返回该点；图表层会显示「单点不连线」。
   return sliced.length > 0 ? sliced : points.slice(-1);
+}
+
+/**
+ * Y 轴刻度：在 [min, max] 上均分 4 段（5 条网格线），端点取真实 min/max。
+ * 价格跨度 ≥ 1 时取整；小跨度保留两位小数，格式与主价一致（千分位）。
+ */
+function buildYTicks(min: number, max: number, span: number): number[] {
+  const lo = min;
+  const hi = max > min ? max : min + span;
+  const decimals = span >= 1 ? 0 : 2;
+  const ticks = Array.from({ length: Y_INTERVALS + 1 }, (_, index) => {
+    if (index === 0) return lo;
+    if (index === Y_INTERVALS) return hi;
+    return lo + (span * index) / Y_INTERVALS;
+  }).map((value) => Number(value.toFixed(decimals)));
+  // 极小跨度取整后可能重合；去重后仍按比例定位，不为凑数造刻度。
+  return ticks.filter((value, index) => index === 0 || value !== ticks[index - 1]);
 }
 
 function shortDate(date: string, range: RangeKey): string {
@@ -78,10 +100,10 @@ export function PriceChart(props: {
       ).toFixed(2)} Z`
     : '';
 
-  const yTicks = [0, 1, 2, 3].map((index) => {
-    const value = max - (span * index) / 3;
-    return { value, y: PAD.top + (plotH * index) / 3 };
-  });
+  const yTicks = buildYTicks(min, max, span).map((value) => ({
+    value,
+    y: PAD.top + plotH - ((value - min) / span) * plotH,
+  }));
   const xTickCount = Math.min(5, visible.length);
   const xTicks = Array.from({ length: xTickCount }, (_, index) => {
     const pointIndex =
