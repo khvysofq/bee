@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import type { CandidateRow, JobRunRow } from '@/lib/jobs-data';
+import { statusLabel } from './labels';
 
 function fmt(value: Date | string | null): string {
   if (!value) return '—';
@@ -20,9 +21,6 @@ const RUN_STATUS_LABEL: Record<string, string> = {
   policy_blocked: '合规拦截',
 };
 
-export function statusLabel(status: string): string {
-  return RUN_STATUS_LABEL[status] ?? status;
-}
 
 export function RunsPanel({ runs }: { runs: JobRunRow[] }): ReactNode {
   const [status, setStatus] = useState('all');

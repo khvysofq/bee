@@ -3022,7 +3022,23 @@ button[type='submit'] {
 }
 
 .job-code {
+  display: inline-block;
+  max-width: 22ch;
   font-weight: var(--weight-medium);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  /* 任务 code 是点分标识，按点断行比在中间硬断开好看 */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* cron 表达式不能折行，折了就读不出来 */
+.job-cron {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
 
 .job-note {

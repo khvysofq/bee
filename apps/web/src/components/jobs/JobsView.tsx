@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import type { JobsData, JobWithStats } from '@/lib/jobs-data';
 import { JobEditor, JobToggle, JobTrigger } from './JobActions';
-import { CandidatesPanel, RunsPanel, statusLabel } from './JobsPanels';
+import { CandidatesPanel, RunsPanel } from './JobsPanels';
+import { statusLabel } from './labels';
 
 function fmtDateTime(value: Date | string | null): string {
   if (!value) return '—';
@@ -76,7 +77,7 @@ function JobRow({ job }: { job: JobWithStats }): ReactNode {
         <td>{def.type}</td>
         <td>{def.tier}</td>
         <td>
-          <code>{schedule.cron ?? '—'}</code>
+          <code className="job-cron">{schedule.cron ?? '—'}</code>
           <div className="muted">{schedule.tz ?? 'Asia/Shanghai'}</div>
         </td>
         <td>

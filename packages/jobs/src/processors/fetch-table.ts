@@ -32,7 +32,7 @@ export interface FetchTableContext {
 }
 
 export interface FetchTableOutcome {
-  status: 'succeeded' | 'skipped' | 'policy_blocked';
+  status: 'succeeded' | 'skipped' | 'failed' | 'policy_blocked';
   errorCode?: string;
   errorDetail?: string;
   httpStatus?: number;
@@ -264,7 +264,9 @@ export async function executeFetchTable(ctx: FetchTableContext): Promise<FetchTa
   } catch (error) {
     const code = error instanceof SchemaMismatchError ? 'schema_mismatch' : 'adapter_error';
     return {
-      status: 'skipped',
+      // 解析失败不是「今天没数据」，是可恢复的故障：要出现在运维页与失败率里，
+      // 后续按 ADR-0010 的升级规则转 T3 或人工处理。skipped 只留给非交易日/源未更新。
+      status: 'failed',
       errorCode: code,
       errorDetail: String(error),
       httpStatus: document.httpStatus,
@@ -322,7 +324,9 @@ export async function executeFetchTable(ctx: FetchTableContext): Promise<FetchTa
     }
   } catch (error) {
     return {
-      status: 'skipped',
+      // ingest 失败 = 本地已抓到、存档也在，只是没写进库：必须记 failed，
+      // 否则任务看起来「今天没事」，数据其实丢了。
+      status: 'failed',
       errorCode: 'ingest_failed',
       errorDetail: String(error),
       httpStatus: document.httpStatus,
