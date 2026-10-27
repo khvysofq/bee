@@ -66,7 +66,18 @@ function editableJob(def: JobsData['jobs'][number]['definition']): Record<string
 
 function JobRow({ job }: { job: JobWithStats }): ReactNode {
   const def = job.definition;
-  const schedule = (def.schedule as { cron?: string; tz?: string } | null) ?? {};
+  const schedule =
+    (def.schedule as {
+      mode?: string;
+      cron?: string;
+      tz?: string;
+      windowStart?: string;
+      windowEnd?: string;
+    } | null) ?? {};
+  const scheduleText =
+    schedule.mode === 'random_window' && schedule.windowStart && schedule.windowEnd
+      ? `${schedule.windowStart}–${schedule.windowEnd} 随机`
+      : (schedule.cron ?? '—');
   return (
     <tbody>
       <tr>
@@ -77,7 +88,7 @@ function JobRow({ job }: { job: JobWithStats }): ReactNode {
         <td>{def.type}</td>
         <td>{def.tier}</td>
         <td>
-          <code className="job-cron">{schedule.cron ?? '—'}</code>
+          <code className="job-cron">{scheduleText}</code>
           <div className="muted">{schedule.tz ?? 'Asia/Shanghai'}</div>
         </td>
         <td>

@@ -29,11 +29,24 @@ export const jobDefinitionSchema = z.object({
       keys: z.record(z.string(), z.string()).optional(),
     })
     .default({ table: 'price_observation' }),
-  schedule: z.object({
-    cron: z.string().min(1),
-    tz: z.string().default('Asia/Shanghai'),
-    enabled: z.boolean().default(true),
-  }),
+  // 两种排期形态（ADR-0010 补充）：
+  //  - cron：固定时刻；
+  //  - random_window：每天在窗口里按 (code, 日期) 哈希挑一个整分钟，避免固定时刻被识别成爬虫。
+  schedule: z.union([
+    z.object({
+      mode: z.literal('random_window').optional(),
+      cron: z.string().min(1),
+      tz: z.string().default('Asia/Shanghai'),
+      enabled: z.boolean().default(true),
+    }),
+    z.object({
+      mode: z.literal('random_window'),
+      windowStart: z.string().regex(/^\d{1,2}:\d{2}$/),
+      windowEnd: z.string().regex(/^\d{1,2}:\d{2}$/),
+      tz: z.string().default('Asia/Shanghai'),
+      enabled: z.boolean().default(true),
+    }),
+  ]),
   limits: z
     .object({
       timeout_s: z.number().int().positive().default(120),

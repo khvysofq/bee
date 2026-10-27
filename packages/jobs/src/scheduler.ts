@@ -1,7 +1,9 @@
 import type { PgBoss } from 'pg-boss';
-import { eq } from 'drizzle-orm';
+import { and, eq, gte } from 'drizzle-orm';
 import { dbSchema, type BeeDb } from '@bee/db';
 import { isValidCron } from './cron';
+import { dateAtLocalMinutes, dueMinuteToday, localDateAndMinutes, type RandomWindowSchedule } from './schedule-window';
+import { enqueueRun } from './queue';
 import { DEFAULT_TZ, QUEUE_NAME } from './types';
 
 /**
@@ -15,9 +17,15 @@ export interface ReconcileResult {
   scheduled: string[];
   removed: string[];
   skipped: Array<{ code: string; reason: string }>;
+  /** 本轮按随机窗口入队的任务。 */
+  enqueued: string[];
 }
 
-export async function reconcileSchedules(boss: PgBoss, db: BeeDb): Promise<ReconcileResult> {
+export async function reconcileSchedules(
+  boss: PgBoss,
+  db: BeeDb,
+  now = new Date(),
+): Promise<ReconcileResult> {
   const jobs = await db
     .select({
       code: dbSchema.jobDef.code,
@@ -28,9 +36,33 @@ export async function reconcileSchedules(boss: PgBoss, db: BeeDb): Promise<Recon
 
   const desired = new Map<string, { cron: string; tz: string }>();
   const skipped: ReconcileResult['skipped'] = [];
+  const randomJobs: Array<{ code: string; schedule: RandomWindowSchedule }> = [];
   for (const job of jobs) {
-    const schedule = job.schedule as { cron?: string; tz?: string; enabled?: boolean };
+    const schedule = job.schedule as {
+      mode?: string;
+      cron?: string;
+      tz?: string;
+      enabled?: boolean;
+      windowStart?: string;
+      windowEnd?: string;
+    };
     if (!job.enabled || schedule.enabled === false) continue;
+    if (schedule.mode === 'random_window') {
+      if (!schedule.windowStart || !schedule.windowEnd) {
+        skipped.push({ code: job.code, reason: '随机窗口缺 windowStart / windowEnd' });
+        continue;
+      }
+      randomJobs.push({
+        code: job.code,
+        schedule: {
+          mode: 'random_window',
+          windowStart: schedule.windowStart,
+          windowEnd: schedule.windowEnd,
+          tz: schedule.tz ?? DEFAULT_TZ,
+        },
+      });
+      continue;
+    }
     if (!schedule.cron || !isValidCron(schedule.cron)) {
       skipped.push({ code: job.code, reason: `cron 非法或缺失：${schedule.cron ?? '∅'}` });
       continue;
@@ -58,7 +90,28 @@ export async function reconcileSchedules(boss: PgBoss, db: BeeDb): Promise<Recon
     }
   }
 
-  return { scheduled, removed, skipped };
+  // 随机窗口任务不走 pg-boss cron，由本循环按「今天该几点 + 今天还没跑过」入队。
+  const enqueued: string[] = [];
+  for (const job of randomJobs) {
+    const due = dueMinuteToday(job.code, now, job.schedule);
+    if (!due || !due.due) continue;
+    // 「今天跑过没有」按任务时区的本地日期判断，不能用 UTC 零点（+08:00 会差一天）。
+    const recent = await db
+      .select({ scheduledFor: dbSchema.jobRun.scheduledFor, startedAt: dbSchema.jobRun.startedAt })
+      .from(dbSchema.jobRun)
+      .where(and(eq(dbSchema.jobRun.jobCode, job.code), gte(dbSchema.jobRun.startedAt, new Date(now.getTime() - 40 * 3600_000))));
+    const tz = job.schedule.tz ?? DEFAULT_TZ;
+    const ranToday = recent.some((run) => {
+      const at = run.scheduledFor ?? run.startedAt;
+      return at ? localDateAndMinutes(new Date(at), tz).date === due.date : false;
+    });
+    if (ranToday) continue;
+    const target = dateAtLocalMinutes(now, tz, due.date, due.minutes);
+    await enqueueRun(boss, job.code, { scheduledFor: target, trigger: 'cron' });
+    enqueued.push(job.code);
+  }
+
+  return { scheduled, removed, skipped, enqueued };
 }
 
 export async function runScheduler(args: {
@@ -71,7 +124,7 @@ export async function runScheduler(args: {
   do {
     const result = await reconcileSchedules(args.boss, args.db);
     console.log(
-      `[scheduler] scheduled=${result.scheduled.length} removed=${result.removed.length} skipped=${result.skipped.length}`,
+      `[scheduler] scheduled=${result.scheduled.length} removed=${result.removed.length} skipped=${result.skipped.length} enqueued=${result.enqueued.length}`,
     );
     for (const item of result.skipped) console.log(`[scheduler] skip ${item.code}: ${item.reason}`);
     if (args.once) return;

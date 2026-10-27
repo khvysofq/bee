@@ -8,7 +8,8 @@
     "./cron": "./src/cron.ts",
     "./validator": "./src/validator.ts",
     "./queue": "./src/queue.ts",
-    "./adapters": "./src/adapters/index.ts"
+    "./adapters": "./src/adapters/index.ts",
+    "./schedule-window": "./src/schedule-window.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -34,8 +34,22 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
   const job = parsed.data;
-  if (!isValidCron(job.schedule.cron)) {
-    return errorResponse('invalid_cron', `cron 非法：${job.schedule.cron}`, 422);
+  const schedule = job.schedule as {
+    mode?: string;
+    cron?: string;
+    windowStart?: string;
+    windowEnd?: string;
+  };
+  if (schedule.mode === 'random_window') {
+    const toMinutes = (value: string): number => {
+      const [hour, minute] = value.split(':').map(Number);
+      return (hour ?? 0) * 60 + (minute ?? 0);
+    };
+    if (!schedule.windowStart || !schedule.windowEnd || toMinutes(schedule.windowEnd) <= toMinutes(schedule.windowStart)) {
+      return errorResponse('invalid_window', `随机窗口非法：${schedule.windowStart}–${schedule.windowEnd}`, 422);
+    }
+  } else if (!isValidCron(schedule.cron ?? '')) {
+    return errorResponse('invalid_cron', `cron 非法：${schedule.cron ?? '∅'}`, 422);
   }
   if (job.adapter && !hasAdapter(job.adapter)) {
     return errorResponse('unknown_adapter', `adapter 未注册：${job.adapter}`, 422);

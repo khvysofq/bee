@@ -1,6 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { dbSchema, type BeeDb } from '@bee/db';
 import { nextCronRun } from '@bee/jobs/cron';
+import { nextRandomRun } from '@bee/jobs/schedule-window';
 import { todayInShanghai } from '@bee/jobs/validator';
 
 const DEFAULT_TZ = 'Asia/Shanghai';
@@ -36,13 +37,37 @@ export interface JobsData {
   candidates: CandidateRow[];
 }
 
-function scheduleOf(job: JobDefRow): { cron?: string; tz?: string; enabled?: boolean } {
-  return (job.schedule as { cron?: string; tz?: string; enabled?: boolean } | null) ?? {};
+function scheduleOf(job: JobDefRow): {
+  mode?: string;
+  cron?: string;
+  tz?: string;
+  enabled?: boolean;
+  windowStart?: string;
+  windowEnd?: string;
+} {
+  return (
+    (job.schedule as {
+      mode?: string;
+      cron?: string;
+      tz?: string;
+      enabled?: boolean;
+      windowStart?: string;
+      windowEnd?: string;
+    } | null) ?? {}
+  );
 }
 
 export function nextRunFor(job: JobDefRow, now: Date = new Date()): Date | null {
   const schedule = scheduleOf(job);
   if (!job.enabled || schedule.enabled === false) return null;
+  if (schedule.mode === 'random_window' && schedule.windowStart && schedule.windowEnd) {
+    return nextRandomRun(job.code, now, {
+      mode: 'random_window',
+      windowStart: schedule.windowStart,
+      windowEnd: schedule.windowEnd,
+      tz: schedule.tz ?? DEFAULT_TZ,
+    });
+  }
   if (!schedule.cron) return null;
   return nextCronRun(schedule.cron, schedule.tz ?? DEFAULT_TZ, now);
 }

@@ -14,7 +14,14 @@ import { jobsFixtureRoot, resolveJobsStoreRoot } from '../store-root';
 import type { IngestResponse } from '../types';
 
 export const FETCH_TABLE_VERSION = 'fetch-table@1.0.0';
-const DEFAULT_UA = 'bee-bot/0.1 (+internal price monitoring; contact owner)';
+/**
+ * 诚实标识的 UA：写明程序名、用途与联系方式，方便对方识别与联系。
+ *
+ * 实测（2026-10-27）：zs.fengj.com 对 `curl/*` 与带 `bot` 字样的 UA 返回 567 拦截页，
+ * 对 `bee-monitor/0.1 (...)` 与浏览器 UA 返回 200。这里**不伪装浏览器**，
+ * 只用一个对方愿意放行的诚实标识；一旦对方开始拦截，任务会记 failed 并告警，不换 UA 硬闯。
+ */
+const DEFAULT_UA = 'bee-monitor/0.1 (+price monitoring; contact: owner)';
 
 export interface FetchTableContext {
   db: BeeDb;

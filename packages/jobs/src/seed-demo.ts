@@ -28,7 +28,15 @@ const FENGJ_JOB = {
     data_class: 'spot_quote',
     keys: { observed_at: 'date', region: 'city', value: 'price' },
   },
-  schedule: { cron: '20 7 * * *', tz: 'Asia/Shanghai', enabled: false },
+  // 随机窗口：每天在 07:10–09:30（Asia/Shanghai）里按 (code, 日期) 哈希挑一个整分钟，
+  // 固定时刻连续请求同一站点是最容易被识别成爬虫的模式。任务本身默认停用，等主人开。
+  schedule: {
+    mode: 'random_window',
+    windowStart: '07:10',
+    windowEnd: '09:30',
+    tz: 'Asia/Shanghai',
+    enabled: false,
+  },
   limits: { timeout_s: 120, max_attempts: 3, backoff_s: [60, 300, 900] },
   agent: { profile: 'scraper-basic', skills: ['web-scrape'], model: 'cheap' },
   policy: { source_code: 'fengj', redistribution: 'internal_only' },
@@ -50,7 +58,8 @@ const DEMO_JOB = {
     data_class: 'spot_quote',
     keys: { observed_at: 'date', region: 'city', value: 'price' },
   },
-  schedule: { cron: '*/15 * * * *', tz: 'Asia/Shanghai', enabled: true },
+  // 自检任务改成每小时一次：15 分钟一轮对离线 fixture 没有额外信息量，只增加台账噪音。
+  schedule: { cron: '7 * * * *', tz: 'Asia/Shanghai', enabled: true },
   limits: { timeout_s: 30, max_attempts: 1, backoff_s: [0] },
   agent: null,
   policy: { source_code: 'demo-fixture', redistribution: 'licensed' },
