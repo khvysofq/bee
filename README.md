@@ -103,3 +103,6 @@ pnpm test                        # 验收测试（需 DATABASE_URL 指向可建�
   迁移文件入库、禁止手改已合并的迁移。
 - 字典行（品类/规格/地域/映射/扣减规则）默认 `draft`，人工裁决后 `active`，裁决落 `caliber_decision`。
 - 关键功能必须带测试：schema 不变量测试在 `packages/db/tests`，新表必须补对应守卫测试。
+
+> 生产常驻：已注册 systemd 服务 `bee-web`（端口 10800，崩溃自动重启）。
+> `systemctl status bee-web` / `systemctl restart bee-web` / `journalctl -u bee-web -f`。
