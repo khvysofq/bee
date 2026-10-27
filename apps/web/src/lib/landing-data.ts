@@ -11,6 +11,9 @@ import {
   type SourceRef,
 } from './briefing-data';
 import { STATS_SOURCE_CODE } from './compliance';
+import { pickRepresentative } from './representative';
+
+export { pickRepresentative } from './representative';
 
 /**
  * 落地页（GUA-26 / P0-6）数据加载层。
@@ -67,6 +70,8 @@ export interface LandingData {
   categories: LandingCategory[];
   hasFixtureSource: boolean;
   hasStatsSource: boolean;
+  /** 统计局公报原文链接（仅用于数据说明中的规范署名；不是来源列表）。 */
+  statsSourceUrl: string | null;
   stats: {
     categoryCount: number;
     categoriesWithQuotes: number;
@@ -85,21 +90,8 @@ function addDays(date: string, days: number): string {
 
 /**
  * 代表报价挑选口径（确定性，页面展示规格/地域标签，不隐藏口径）：
- *  1. 只取最新定档日的报价（旬报锚点日期更早，不当作「今日行情」）；
- *  2. 优先采购价（再生原料行情的通用口径）；
- *  3. 同池内优先有上一交易日可比值的（卡片能真实呈现涨跌），否则取排序第一条。
+ *  见 ./representative.ts，集成测试仍从本模块导入。
  */
-export function pickRepresentative(
-  quotes: BriefingQuote[],
-  latestQuoteDate: string | null,
-): BriefingQuote | null {
-  if (quotes.length === 0) return null;
-  const latest = latestQuoteDate ? quotes.filter((quote) => quote.quoteDate === latestQuoteDate) : [];
-  const pool = latest.length > 0 ? latest : quotes;
-  const purchase = pool.filter((quote) => quote.priceType === 'purchase');
-  const candidates = purchase.length > 0 ? purchase : pool;
-  return candidates.find((quote) => quote.previousTradingDay !== null) ?? candidates[0] ?? null;
-}
 
 function toLandingQuote(quote: BriefingQuote): LandingQuote {
   return {
@@ -184,6 +176,8 @@ export async function loadLandingData(database: BeeDb = defaultDb): Promise<Land
       (source) => source.code.startsWith('fixture') || source.code === 'open-cc0-sample',
     ),
     hasStatsSource: briefing.sources.some((source) => source.code === STATS_SOURCE_CODE),
+    statsSourceUrl:
+      briefing.sources.find((source) => source.code === STATS_SOURCE_CODE)?.latestFetchUrl ?? null,
     stats: {
       categoryCount: briefing.stats.categoryCount,
       categoriesWithQuotes: briefing.stats.categoriesWithQuotes,

@@ -1,20 +1,26 @@
 import type { Metadata } from 'next';
-import { SiteHeader } from '@/components/SiteHeader';
+import {
+  AI_LABEL_ID,
+  BRIEF_DISCLAIMER_ID,
+  CONTENT_POLICY_ID,
+} from '@/lib/compliance';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'bee · 报废品行情信息平台',
-  description: '每天可信的日频报价与行情简报 —— 数据底座',
+  title: 'bee · 再生物资行情',
+  description: '再生材料的日频报价、趋势推演与行业问答。数字来自已校验的报价数据。',
+  applicationName: 'bee',
+  other: {
+    'content-policy-id': CONTENT_POLICY_ID,
+    'brief-disclaimer-id': BRIEF_DISCLAIMER_ID,
+    'ai-label-id': AI_LABEL_ID,
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body>
-        {/* GUA-29：全站统一导航节奏（落地页 / 简报 / 巡检 / 状态） */}
-        <SiteHeader />
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
