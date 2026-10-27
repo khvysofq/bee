@@ -18,6 +18,9 @@ import {
   type RetrievalHit,
 } from './retrieve';
 import type { QaAnswer, QaKnowledgeCard } from './types';
+import { EXAMPLE_QUESTIONS } from './examples';
+
+export { EXAMPLE_QUESTIONS };
 
 /**
  * 回答编排（GUA-35）。
@@ -43,12 +46,6 @@ export interface AnswerDeps {
 }
 
 /** 输入框下方的示例问题：三类策略各一个，最后一个是会被拒绝的越界问法。 */
-export const EXAMPLE_QUESTIONS = [
-  '今天苏州重废多少',
-  '重废和中废怎么分',
-  '报价为什么有区间',
-  '明天废钢会涨到多少',
-];
 
 const FACT_NARRATIVE = [
   '下面的数字全部取自报价库里已发布的记录：报价日、当日高低区间与中值，以及与上一交易日、上周同期的真实变化。',
