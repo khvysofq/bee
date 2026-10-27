@@ -433,6 +433,19 @@ svg {
   color: var(--color-faint);
 }
 
+/* ICP 备案号：必须可见，链接到工信部备案系统 */
+.footer-icp {
+  color: var(--color-muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.footer-icp:hover,
+.footer-icp:focus-visible {
+  color: var(--color-ink);
+  text-decoration: underline;
+}
+
 /* ---------- 3. home：三区首屏 ---------- */
 
 .home-hero {

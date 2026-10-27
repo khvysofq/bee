@@ -125,6 +125,14 @@ export function SiteFooter(props: { info: FooterInfo }) {
 
         <div className="footer-base">
           <span>© 2026 bee · 再生物资行情</span>
+          <a
+            className="footer-icp"
+            href="https://beian.miit.gov.cn/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            京ICP备2023038384号-1
+          </a>
           <span>
             报价日 {info.latestQuoteDate ?? '—'} · 数据更新于 {formatUpdateTime(info.updatedAt)}
           </span>
