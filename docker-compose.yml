@@ -1,13 +1,16 @@
+# 数据库已迁到共享中间件（Postgres 18，账号由 `newapp bee` 分配）。
+# 这里只保留一个可选的本地回退：`docker compose --profile local up -d postgres`
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: bee-postgres
+    container_name: bee-postgres-local
+    profiles: ["local"]
     environment:
       POSTGRES_USER: bee
       POSTGRES_PASSWORD: bee
       POSTGRES_DB: bee
     ports:
-      - "5432:5432"
+      - "127.0.0.1:55433:5432"
     volumes:
       - bee-pgdata:/var/lib/postgresql/data
     healthcheck:

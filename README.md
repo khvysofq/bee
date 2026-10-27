@@ -52,18 +52,22 @@ docs/
 
 ## 本地起服务（最短路径）
 
-前置：Node ≥ 20.9、pnpm ≥ 12、Docker。
+前置：Node ≥ 20.9、pnpm ≥ 12。数据库走共享中间件（`newapp bee` 分配），不再自带 Postgres 容器。
 
 ```bash
-docker compose up -d postgres     # 1. 起 Postgres 16
-pnpm install                      # 2. 安装依赖
-pnpm db:migrate                   # 3. 应用迁移（packages/db/migrations）
-pnpm db:seed                      # 4. 种子口径字典草案（5 品类 + 地域骨架 + 元/吨）
-pnpm data:stats                   # 5. 抓取最新一期统计局旬报（真实源；加 --snapshot 可离线回放）
+cp .env.example .env             # 1. 填 DATABASE_URL（唯一必填项，换库只改这行）
+pnpm install                     # 2. 安装依赖
+pnpm db:migrate                  # 3. 应用迁移（packages/db/migrations）
+pnpm db:seed                     # 4. 种子口径字典草案（5 品类 + 地域骨架 + 元/吨）
+pnpm data:stats                  # 5. 抓取最新一期统计局旬报（真实源；加 --snapshot 可离线回放）
 pnpm series:exchange --from 2024-10-27 --to 2026-10-27   # 5b. 交易所日行情回填（期货，天频）
-pnpm dev                          # 6. http://localhost:3000 —— 简报页 /briefing
-pnpm test                         # 验收测试（含「同一品类同城不同价」集成证明，需本地 Postgres）
+pnpm dev                         # 6. http://localhost:3000
+pnpm test                        # 验收测试（需 DATABASE_URL 指向可建库的账号）
 ```
+
+**数据库配置只有一处**：`DATABASE_URL`。代码里不出现硬编码连接串，迁移数据库（换主机、换实例、换云厂商）只改这一行，另需保证该账号具备 `CREATEDB`（测试会派生 `bee_test` 库）。
+
+迁移过来时的账号权限：`CREATE ROLE ... LOGIN PASSWORD ... CREATEDB`，并对 `postgres` 库放开 `CONNECT`（测试要借它建库）。
 
 验证到什么程度算好：`pnpm test` 全绿（不变量集成测试 + P0-3 fixture 端到端 + P0-5 真实旬价端到端：
 采集/归档/抽取/规范化/Agent 校验/异常隔离/定档/加工指标/回放/幂等/合规闸门），
