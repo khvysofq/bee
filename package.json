@@ -21,7 +21,10 @@
     "data:stats": "pnpm --filter @bee/pipeline stats",
     "series:exchange": "pnpm --filter @bee/pipeline exchange",
     "series:intl": "pnpm --filter @bee/pipeline intl",
-    "series:report": "pnpm --filter @bee/pipeline report"
+    "series:report": "pnpm --filter @bee/pipeline report",
+    "jobs:scheduler": "pnpm --filter @bee/jobs jobs:scheduler",
+    "jobs:worker": "pnpm --filter @bee/jobs jobs:worker",
+    "jobs:seed": "pnpm --filter @bee/jobs jobs:seed"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

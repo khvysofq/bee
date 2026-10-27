@@ -21,7 +21,8 @@ export interface NormalizeInputRow {
   sourceCode: string;
   fetchId: string;
   fetchedAt: Date;
-  runId: string;
+  /** 采集作业（packages/jobs）不建 pipeline_run，允许为空；观测仍完整落库。 */
+  runId: string | null;
   extractVersion: string;
   rows: ExtractedRow[];
 }

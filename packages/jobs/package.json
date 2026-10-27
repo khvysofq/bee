@@ -1,0 +1,30 @@
+{
+  "name": "@bee/jobs",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./cron": "./src/cron.ts",
+    "./validator": "./src/validator.ts",
+    "./queue": "./src/queue.ts",
+    "./adapters": "./src/adapters/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "jobs:scheduler": "tsx src/run-scheduler.ts",
+    "jobs:worker": "tsx src/run-worker.ts",
+    "jobs:seed": "tsx src/seed-demo.ts"
+  },
+  "dependencies": {
+    "@bee/core": "workspace:*",
+    "@bee/db": "workspace:*",
+    "@bee/pipeline": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "pg-boss": "^12.38.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}

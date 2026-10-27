@@ -31,7 +31,7 @@ function money(value: number): string {
  */
 export async function aggregateDailyQuotes(
   tx: BeeDbOrTx,
-  args: { runId: string; observationIds: string[]; rulesVersion: string; methodVersion?: string },
+  args: { runId: string | null; observationIds: string[]; rulesVersion: string; methodVersion?: string },
 ): Promise<DailyQuoteRow[]> {
   if (args.observationIds.length === 0) return [];
   const rows = await tx

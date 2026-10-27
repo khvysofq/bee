@@ -322,8 +322,9 @@ export async function applyValidation(
   tx: BeeDbOrTx,
   args: {
     plan: ValidationPlan;
-    runId: string;
-    stepId: string;
+    /** 采集作业（jobs）走 HTTP ingest 时没有 pipeline_run/pipeline_step，允许为空。 */
+    runId: string | null;
+    stepId: string | null;
     rulesVersion: string;
     reviewer: AgentReviewer;
     promptSha: string;

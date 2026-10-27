@@ -1,4 +1,5 @@
 export * from './ledger';
+export * from './ingest-contract';
 export * from './types';
 export * from './store';
 export * from './extract';
