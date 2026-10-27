@@ -32,7 +32,7 @@
   --color-ink: #1a1512;            /* 标题 / 主文字 */
   --color-ink-2: #3a3129;          /* 正文 */
   --color-muted: #564938;          /* 次级文字（合规文案最低对比档：沙底 4.7:1） */
-  --color-faint: #7d6c56;          /* 装饰 / 弱化 meta（不承载合规文案） */
+  --color-faint: #62523c;          /* 装饰 / 弱化 meta（不承载合规文案） */
   --color-line: #b3a58c;           /* 发丝分隔线 */
   --color-line-strong: #94856c;    /* 强调描边 */
   --color-line-dark: rgba(242, 231, 208, 0.12); /* 钢板底上的发丝线 */
@@ -198,7 +198,7 @@
   --ticker-duration: 46s;
   --sweep-width: 160px;
   --sweep-duration: 8s;
-  --rail-offset: 12px;
+  --rail-offset: 10px;              /* 与虚线周期一致，循环无跳变（≤12px） */
   --rail-duration: 3s;
   --radar-size: 92px;
   --radar-duration: 4s;

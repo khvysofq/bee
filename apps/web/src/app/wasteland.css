@@ -38,11 +38,11 @@ body::before {
   mix-blend-mode: multiply;
 }
 
-/* 暖灰测量网格 + 四角风沙暗角；网格以 120s 周期漂移 ≤8px。 */
+/* 暖灰测量网格 + 四角风沙暗角；网格以 120s 周期漂移 ≤8px（transform，合成层）。 */
 body::after {
   content: '';
   position: fixed;
-  inset: 0;
+  inset: calc(-1 * var(--texture-grid-drift));
   z-index: -2;
   pointer-events: none;
   background-image:
@@ -62,21 +62,16 @@ body::after {
   background-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat, no-repeat;
   background-position: 0 0, 0 0, 0 0, 100% 0, 0 100%, 100% 100%;
   animation: ground-drift var(--texture-grid-duration) linear infinite;
+  will-change: transform;
 }
 
 @keyframes ground-drift {
   0%,
   100% {
-    background-position: 0 0, 0 0, 0 0, 100% 0, 0 100%, 100% 100%;
+    transform: translate(0, 0);
   }
   50% {
-    background-position:
-      var(--texture-grid-drift) var(--texture-grid-drift),
-      var(--texture-grid-drift) var(--texture-grid-drift),
-      0 0,
-      100% 0,
-      0 100%,
-      100% 100%;
+    transform: translate(var(--texture-grid-drift), var(--texture-grid-drift));
   }
 }
 
