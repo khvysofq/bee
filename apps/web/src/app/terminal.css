@@ -344,7 +344,10 @@
 /* ---------- 9.4 行情表 ---------- */
 
 .t-table-wrap {
+  /* 行容器自身是横向滚动容器：滚动到行时把站点头与表头的高度让出来，
+     避免锚点 / 焦点落点被吸顶表头压住。 */
   overflow-x: auto;
+  scroll-padding-top: calc(var(--header-height) + var(--table-head-height));
 }
 
 .t-table {
@@ -355,7 +358,9 @@
 
 .t-table thead th {
   position: sticky;
-  top: var(--header-height);
+  /* 横向滚动容器同时是 sticky 的 scrollport；top 若取 --header-height，
+     sticky 会从容器顶边再下移 60px，正好压住首行。容器内从 0 开始吸顶。 */
+  top: 0;
   z-index: 3;
   height: var(--table-head-height);
   padding: 0 var(--space-3);
@@ -378,6 +383,10 @@
   padding: var(--space-2) var(--space-3);
   border-bottom: var(--hairline) solid var(--color-line);
   vertical-align: middle;
+}
+
+.t-table tbody tr {
+  scroll-margin-top: calc(var(--header-height) + var(--table-head-height));
 }
 
 .t-table tbody tr:hover {
