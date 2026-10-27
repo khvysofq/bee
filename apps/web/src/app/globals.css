@@ -16,6 +16,7 @@
    ============================================================ */
 
 @import './tokens.css';
+@import './terminal.css';
 
 /* ---------- 0. fonts ---------- */
 
@@ -198,20 +199,31 @@ svg {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: color-mix(in srgb, var(--color-page) 92%, transparent);
-  backdrop-filter: blur(14px);
-  border-bottom: var(--hairline) solid var(--color-line);
+  background: var(--color-graphite);
+  border-bottom: var(--hairline) solid var(--color-graphite-3);
+  color: var(--color-on-dark);
 }
 
 .site-header-inner {
   max-width: var(--width-page);
   min-height: var(--header-height);
   margin: 0 auto;
-  padding: 0 var(--space-7);
+  padding: 0 var(--space-6);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-6);
+  gap: var(--space-5);
+}
+
+.site-header .brand-word {
+  color: var(--color-on-dark);
+}
+
+.site-header .brand-sub {
+  color: var(--color-on-dark-muted);
+}
+
+.site-header .brand-mark rect {
+  fill: var(--color-graphite-2);
 }
 
 .brand {
@@ -219,6 +231,7 @@ svg {
   align-items: center;
   gap: var(--space-3);
   min-height: 44px;
+  flex: none;
 }
 
 .brand-mark {
@@ -228,12 +241,12 @@ svg {
 .brand-text {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 2px;
 }
 
 .brand-word {
   font-family: var(--font-mono);
-  font-size: var(--text-xl);
+  font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-none);
   letter-spacing: var(--tracking-num);
@@ -241,7 +254,7 @@ svg {
 }
 
 .brand-sub {
-  font-size: var(--text-2xs);
+  font-size: 10px;
   line-height: var(--leading-none);
   letter-spacing: var(--tracking-label);
   color: var(--color-muted);
@@ -250,7 +263,8 @@ svg {
 .site-nav {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: 0;
+  margin-left: var(--space-4);
 }
 
 .site-nav a {
@@ -262,18 +276,18 @@ svg {
   border-radius: var(--radius-xs);
   font-size: var(--text-base);
   font-weight: var(--weight-medium);
-  color: var(--color-muted);
+  color: var(--color-on-dark-muted);
   transition: background-color var(--duration-fast) var(--ease-out),
     color var(--duration-fast) var(--ease-out);
 }
 
 .site-nav a:hover {
-  background: var(--color-page-deep);
-  color: var(--color-ink);
+  background: var(--color-graphite-2);
+  color: var(--color-on-dark);
 }
 
 .site-nav a.active {
-  background: var(--color-ink);
+  background: var(--color-graphite-2);
   color: var(--color-on-dark);
 }
 

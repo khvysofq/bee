@@ -8,6 +8,7 @@ coverage/
 # 环境与本地数据
 .env
 .env.local
+.env.bak.*
 data/*
 !data/.gitkeep
 

@@ -22,6 +22,7 @@
   --color-graphite: #101714;       /* 深色仪表盘 */
   --color-graphite-2: #18211d;     /* 仪表盘内层 */
   --color-graphite-3: #24332c;     /* 仪表盘描边 / hover */
+  --color-graphite-4: #2f443a;     /* 仪表盘内分割线 / 次级块 */
   --color-ink: #0d1512;            /* 标题 / 主文字 */
   --color-ink-2: #303c37;          /* 正文 */
   --color-muted: #5e6c66;          /* 次级文字（合规文案最低对比档） */
@@ -33,6 +34,10 @@
   --color-on-dark: #f2f7f4;        /* 石墨底主文字 */
   --color-on-dark-muted: #9fb0a8;  /* 石墨底次级文字 */
   --color-scrim: rgba(13, 21, 18, 0.56);
+  --color-row-hover: #f1f6f3;      /* 表格行 hover（不是斑马纹） */
+  --color-signal-line: rgba(201, 242, 91, 0.42); /* 图表交互线与标记 */
+  --color-on-dark-line: rgba(242, 247, 244, 0.16);
+  --color-ink-wash: rgba(13, 21, 18, 0.04); /* 浅底图表面积填充 */
 
   /* ---------- 色彩：唯一信号色（校准绿） ---------- */
   --color-signal: #c9f25b;         /* 高可视信号绿：只用于标记与交互 */
@@ -86,6 +91,11 @@
   --num-lg: clamp(24px, 2.3vw, 32px);
   --num-md: 24px;
   --num-sm: 18px;
+  /* 行情台读数：表行价格 28–40px，单品页头部超大读数。 */
+  --num-row: clamp(28px, 2.1vw, 34px);
+  --num-row-sm: 24px;
+  --num-hero: clamp(46px, 4.6vw, 68px);
+  --num-kpi: clamp(22px, 2vw, 30px);
 
   /* 行高 */
   --leading-none: 1;
@@ -106,6 +116,9 @@
   --tracking-heading: -0.02em;
   --tracking-num: -0.01em;
   --tracking-label: 0.08em;
+  --tracking-wide: 0.14em;
+  --tracking-wider: 0.16em;
+  --tracking-mono: 0.04em;
 
   /* ---------- 间距阶（4px 基数） ---------- */
   --space-1: 4px;
@@ -130,16 +143,21 @@
 
   /* ---------- 阴影（全站只有一个遮罩阴影；面板靠线与对比分层） ---------- */
   --shadow-overlay: 0 -24px 64px rgba(13, 21, 18, 0.3);
+  --shadow-pop: 0 18px 40px rgba(13, 21, 18, 0.18);
   --shadow-focus: 0 0 0 2px var(--color-page), 0 0 0 4px var(--color-signal-deep);
 
   /* ---------- 布局（结构性数值统一登记） ---------- */
-  --width-page: 1280px;            /* 全站主容器 */
+  --width-page: 1600px;            /* 全站主容器（行情台加宽） */
   --width-reading: 820px;          /* 长文阅读容器 */
   --width-internal: 1120px;        /* 内部运维页 */
-  --header-height: 64px;
+  --width-drawer: 380px;           /* 右侧问答抽屉 */
+  --grid-columns: 12;              /* 12 栅格 */
+  --header-height: 60px;
+  --table-head-height: 38px;
   --hairline: 1px;
   --hairline-thick: 2px;
   --z-overlay: 60;
+  --z-drawer: 70;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --duration-fast: 140ms;
   --duration-base: 220ms;
