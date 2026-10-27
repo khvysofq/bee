@@ -114,6 +114,9 @@
   gap: var(--space-2);
   height: 34px;
   padding: 0 var(--space-4);
+  /* 按钮文字不参与收缩：窄屏优先压缩搜索框，按钮保持单行完整。 */
+  flex: none;
+  white-space: nowrap;
   border: var(--hairline) solid var(--color-signal-deep);
   border-radius: var(--radius-xs);
   background: transparent;
