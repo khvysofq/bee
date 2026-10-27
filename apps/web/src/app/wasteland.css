@@ -586,6 +586,10 @@ body::after {
     animation: none;
   }
 
+  body::after {
+    animation: none;
+  }
+
   .t-table tbody tr:hover td:first-child {
     box-shadow: none;
   }
