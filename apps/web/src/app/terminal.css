@@ -1467,10 +1467,16 @@
 
   .header-tools {
     flex: 1;
+    min-width: 0;
   }
 
   .header-search {
     width: 100%;
+    min-width: 0;
+  }
+
+  .header-search input {
+    min-width: 0;
   }
 
   .t-board {
@@ -1639,6 +1645,41 @@
 
   .t-table-compact .t-optional {
     display: none;
+  }
+
+  /* ---------- 窄屏防横向溢出 ---------- */
+  .t-table-wrap {
+    max-width: 100%;
+  }
+
+  .t-row-cat,
+  .t-row-spec {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .t-chart-head {
+    flex-wrap: wrap;
+  }
+
+  .t-chart-tip {
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .t-detail-head,
+  .t-hero-price,
+  .t-crumbs {
+    flex-wrap: wrap;
+  }
+
+  .t-section-head {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+  }
+
+  .t-aside-kpi dd {
+    white-space: normal;
   }
 
   .qa-drawer {

@@ -24,58 +24,60 @@ export function DetailTable(props: { rows: RecentRow[]; kind: 'series' | 'quote'
   }
 
   return (
-    <table className="t-table t-table-compact">
-      <thead>
-        <tr>
-          <th scope="col">日期</th>
-          <th scope="col" className="num">
-            {kind === 'series' ? '结算 / 主值' : '中值'}
-          </th>
-          {kind === 'series' ? (
-            <>
-              <th scope="col" className="num t-optional">
-                开
-              </th>
-              <th scope="col" className="num t-optional">
-                高
-              </th>
-              <th scope="col" className="num t-optional">
-                低
-              </th>
-              <th scope="col" className="num t-optional">
-                成交 / 持仓
-              </th>
-            </>
-          ) : (
+    <div className="t-table-wrap">
+      <table className="t-table t-table-compact">
+        <thead>
+          <tr>
+            <th scope="col">日期</th>
             <th scope="col" className="num">
-              区间
+              {kind === 'series' ? '结算 / 主值' : '中值'}
             </th>
-          )}
-          {kind === 'quote' ? <th scope="col">状态</th> : <th scope="col" className="num t-optional">版本</th>}
-          <th scope="col">
-            <span className="sr-only">溯源</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => {
-          const open = expanded === row.id;
-          const traceId = kind === 'series' ? row.id : row.quoteId;
-          return (
-            <RowGroup
-              key={row.id}
-              row={row}
-              open={open}
-              columns={columns}
-              kind={kind}
-              unit={unit}
-              traceId={traceId}
-              onToggle={() => setExpanded(open ? null : row.id)}
-            />
-          );
-        })}
-      </tbody>
-    </table>
+            {kind === 'series' ? (
+              <>
+                <th scope="col" className="num t-optional">
+                  开
+                </th>
+                <th scope="col" className="num t-optional">
+                  高
+                </th>
+                <th scope="col" className="num t-optional">
+                  低
+                </th>
+                <th scope="col" className="num t-optional">
+                  成交 / 持仓
+                </th>
+              </>
+            ) : (
+              <th scope="col" className="num">
+                区间
+              </th>
+            )}
+            {kind === 'quote' ? <th scope="col">状态</th> : <th scope="col" className="num t-optional">版本</th>}
+            <th scope="col">
+              <span className="sr-only">溯源</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const open = expanded === row.id;
+            const traceId = kind === 'series' ? row.id : row.quoteId;
+            return (
+              <RowGroup
+                key={row.id}
+                row={row}
+                open={open}
+                columns={columns}
+                kind={kind}
+                unit={unit}
+                traceId={traceId}
+                onToggle={() => setExpanded(open ? null : row.id)}
+              />
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
