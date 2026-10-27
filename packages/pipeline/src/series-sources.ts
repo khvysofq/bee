@@ -125,3 +125,71 @@ export async function unitIdByCode(db: BeeDb, code: string): Promise<string> {
   if (!row) throw new Error(`单位字典缺少 ${code}`);
   return row.id;
 }
+/** 郑商所品种中文名（只列常用；未列出的用代码本身，不猜中文）。 */
+export const CZCE_PRODUCT_NAMES: Record<string, string> = {
+  SM: '锰硅',
+  SF: '硅铁',
+  TA: 'PTA',
+  MA: '甲醇',
+  SR: '白糖',
+  CF: '棉花',
+  OI: '菜籽油',
+  RM: '菜籽粕',
+  FG: '玻璃',
+  SA: '纯碱',
+  UR: '尿素',
+  PF: '短纤',
+  PK: '花生',
+  PX: '对二甲苯',
+  SH: '烧碱',
+  AP: '苹果',
+  CJ: '红枣',
+  CY: '棉纱',
+  ZC: '动力煤',
+};
+
+/**
+ * 郑商所日行情文本解析。
+ *
+ * 格式：UTF-8 文本（实测不是 GBK），制表符 + 管道分隔；
+ * 列序：合约代码|昨结算|今开盘|最高价|最低价|今收盘|今结算|涨跌1|涨跌2|成交量(手)|持仓量|增减量|成交额(万元)|交割结算价
+ * 合约码形如 AP611（字母 + 3 位年月），与上期所的 rb2701 不同，这里原样保留。
+ */
+export function parseCzceDaily(body: string, obsDate: string): import('./series').SeriesRowInput[] {
+  const rows: import('./series').SeriesRowInput[] = [];
+  for (const line of body.split(/\r?\n/)) {
+    if (!line.includes('|')) continue;
+    const cells = line.split('|').map((c) => c.trim());
+    const code = cells[0] ?? '';
+    if (!/^[A-Z]{1,2}\d{3,4}$/.test(code)) continue;
+    const product = code.replace(/\d+$/, '');
+    const num = (v: string | undefined): string | null => {
+      if (!v) return null;
+      const s = v.replace(/,/g, '').trim();
+      if (!s || s === '-' || s === '—') return null;
+      const n = Number(s);
+      return Number.isFinite(n) ? String(n) : null;
+    };
+    const settle = num(cells[6]);
+    const close = num(cells[5]);
+    const value = settle ?? close;
+    if (!value) continue;
+    rows.push({
+      instrumentCode: product,
+      contractCode: code,
+      nameCn: CZCE_PRODUCT_NAMES[product] ?? product,
+      obsDate,
+      value,
+      openPrice: num(cells[2]),
+      highPrice: num(cells[3]),
+      lowPrice: num(cells[4]),
+      closePrice: close,
+      settlePrice: settle,
+      volume: num(cells[9]),
+      openInterest: num(cells[10]),
+      turnover: num(cells[12]),
+      detail: { prevSettle: num(cells[1]), deliverySettle: num(cells[13]) },
+    });
+  }
+  return rows;
+}

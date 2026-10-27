@@ -16,6 +16,7 @@ import {
   CATEGORY_BY_INSTRUMENT,
   ingestSeriesDocument,
   normalizeShfeRow,
+  parseCzceDaily,
   seedSeriesSources,
   type SeriesRowInput,
 } from '../src';
@@ -33,6 +34,13 @@ const VENUES = {
     code: 'ine',
     venue: 'INE',
     url: (d: string) => `https://www.ine.cn/data/tradedata/future/dailydata/kx${d}.dat`,
+  },
+  czce: {
+    code: 'czce',
+    venue: 'CZCE',
+    // 郑商所的日行情是静态文本文件；GET 无 Referer 会被 301 空响应挡掉。
+    url: (d: string) =>
+      `https://www.czce.com.cn/cn/DFSStaticFiles/Future/${d.slice(0, 4)}/${d}/FutureDataDaily.txt`,
   },
 } as const;
 
@@ -88,7 +96,13 @@ async function main(): Promise<void> {
         const url = v.url(day);
         let body: string | null = null;
         try {
-          const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(20_000) });
+          const res = await fetch(url, {
+            headers: {
+              'User-Agent': UA,
+              ...(key === 'czce' ? { Referer: 'https://www.czce.com.cn/' } : {}),
+            },
+            signal: AbortSignal.timeout(20_000),
+          });
           if (res.status === 404) {
             totals.nonTrading++;
             await sleep(rate);
@@ -109,19 +123,22 @@ async function main(): Promise<void> {
         }
         await sleep(rate);
 
-        let payload: { o_curinstrument?: Array<Record<string, unknown>> };
-        try {
-          payload = JSON.parse(body);
-        } catch {
-          totals.failed++;
-          console.warn(`! ${v.venue} ${dayIso} 响应不是 JSON`);
-          continue;
-        }
-        const rawRows = payload.o_curinstrument ?? [];
         const rows: SeriesRowInput[] = [];
-        for (const r of rawRows) {
-          const row = normalizeShfeRow(r, dayIso);
-          if (row) rows.push(row);
+        if (key === 'czce') {
+          rows.push(...parseCzceDaily(body, dayIso));
+        } else {
+          let payload: { o_curinstrument?: Array<Record<string, unknown>> };
+          try {
+            payload = JSON.parse(body);
+          } catch {
+            totals.failed++;
+            console.warn(`! ${v.venue} ${dayIso} 响应不是 JSON`);
+            continue;
+          }
+          for (const r of payload.o_curinstrument ?? []) {
+            const row = normalizeShfeRow(r, dayIso);
+            if (row) rows.push(row);
+          }
         }
         if (!rows.length) {
           totals.nonTrading++;
