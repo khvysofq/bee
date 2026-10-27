@@ -36,6 +36,13 @@
       "when": 1793079495255,
       "tag": "0004_bent_forge",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793118603385,
+      "tag": "0005_clammy_night_thrasher",
+      "breakpoints": true
     }
   ]
 }

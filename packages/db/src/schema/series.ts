@@ -144,6 +144,7 @@ export const seriesPoint = pgTable(
     index('series_point_date_idx').on(t.obsDate),
     index('series_point_series_date_idx').on(t.seriesId, t.obsDate),
     check('series_point_revision_positive', sql`${t.revision} >= 1`),
+    check('series_point_obs_date_shape', sql`${t.obsDate} ~ '^\\d{4}-\\d{2}-\\d{2}$'`),
     check(
       'series_point_high_low',
       sql`${t.highPrice} IS NULL OR ${t.lowPrice} IS NULL OR ${t.highPrice} >= ${t.lowPrice}`,
