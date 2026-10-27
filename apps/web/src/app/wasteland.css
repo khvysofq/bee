@@ -1,0 +1,647 @@
+/* ============================================================
+   wasteland.css —— 「沙暴终端 / DUST TERMINAL」视觉覆盖层
+   在 globals.css 之后引入；只组合 tokens.css 变量。
+   全部纹理与动效均为 CSS 渐变 / 内联 SVG data-URI，零网络请求。
+   分层：
+     0. 地面（颗粒 / 网格 / 暗角）
+     1. 回收钢板面板（斜纹 / 铆钉 / 焊缝 / 扫描线）
+     2. 信号条 / Live 灯 / 头部
+     3. 磷光扫掠 / 雷达 / 数据轨
+     4. 图表画线 / 流动光点
+     5. 入场错峰 / 行 hover
+     6. 响应式与降级
+   ============================================================ */
+
+:root {
+  /* 雷达遮罩需要纯黑（仅用于 mask，不参与配色）。 */
+  --texture-mask: #000;
+}
+
+/* ---------- 0. 地面：晒裂的混凝土 ---------- */
+
+body {
+  position: relative;
+  background: var(--color-page);
+}
+
+/* 尘埃颗粒：内联 feTurbulence，opacity≈0.05，multiply 融入沙色。 */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--texture-grain);
+  background-size: var(--texture-grain-size) var(--texture-grain-size);
+  background-repeat: repeat;
+  opacity: var(--texture-grain-opacity);
+  mix-blend-mode: multiply;
+}
+
+/* 暖灰测量网格 + 四角风沙暗角；网格以 120s 周期漂移 ≤8px。 */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--texture-grid-color) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--texture-grid-color) 1px, transparent 1px),
+    radial-gradient(circle at 0 0, var(--color-vignette), transparent var(--texture-vignette)),
+    radial-gradient(circle at 100% 0, var(--color-vignette), transparent var(--texture-vignette)),
+    radial-gradient(circle at 0 100%, var(--color-vignette), transparent var(--texture-vignette)),
+    radial-gradient(circle at 100% 100%, var(--color-vignette), transparent var(--texture-vignette));
+  background-size:
+    var(--texture-grid-size) var(--texture-grid-size),
+    var(--texture-grid-size) var(--texture-grid-size),
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%;
+  background-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+  background-position: 0 0, 0 0, 0 0, 100% 0, 0 100%, 100% 100%;
+  animation: ground-drift var(--texture-grid-duration) linear infinite;
+}
+
+@keyframes ground-drift {
+  0%,
+  100% {
+    background-position: 0 0, 0 0, 0 0, 100% 0, 0 100%, 100% 100%;
+  }
+  50% {
+    background-position:
+      var(--texture-grid-drift) var(--texture-grid-drift),
+      var(--texture-grid-drift) var(--texture-grid-drift),
+      0 0,
+      100% 0,
+      0 100%,
+      100% 100%;
+  }
+}
+
+/* ---------- 1. 回收钢板面板 ---------- */
+
+.t-board,
+.entry-market,
+.t-detail-main {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: var(--hairline) solid var(--w-steel-line);
+  border-radius: var(--radius-xs);
+  clip-path: none;
+  box-shadow: var(--w-steel-shadow), var(--w-steel-drop);
+  background-color: var(--color-graphite);
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      var(--color-scanline) 0 1px,
+      transparent 1px var(--texture-scan-gap)
+    ),
+    radial-gradient(ellipse at 50% 42%, transparent 52%, var(--color-panel-shade) 100%),
+    linear-gradient(to right, var(--color-grid-dark) var(--hairline), transparent var(--hairline)),
+    linear-gradient(to bottom, var(--color-grid-dark) var(--hairline), transparent var(--hairline));
+  background-size: auto, 100% 100%, 48px 48px, 48px 48px;
+  background-repeat: repeat, no-repeat, repeat, repeat;
+}
+
+/* 面板顶部 3px 警示斜纹：只给主面板，不做满全站。 */
+.t-board::before,
+.entry-market::before,
+.t-detail-main::before {
+  content: '';
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--texture-stripe-height);
+  background: repeating-linear-gradient(
+    var(--texture-stripe-angle),
+    var(--texture-stripe-rust) 0 10px,
+    var(--texture-stripe-dark) 10px 20px
+  );
+  pointer-events: none;
+}
+
+/* 四角铆钉 + 长边焊缝：一个伪元素用多层背景完成，避免整排铆钉。 */
+.t-board::after,
+.entry-market::after,
+.t-detail-main::after {
+  content: '';
+  position: absolute;
+  z-index: 3;
+  inset: 6px;
+  width: auto;
+  height: auto;
+  top: 6px;
+  right: 6px;
+  background-color: transparent;
+  background-image:
+    radial-gradient(
+      circle,
+      var(--color-rivet) 0 1px,
+      var(--color-rivet-shadow) 1.1px 2px,
+      transparent 2.1px
+    ),
+    radial-gradient(
+      circle,
+      var(--color-rivet) 0 1px,
+      var(--color-rivet-shadow) 1.1px 2px,
+      transparent 2.1px
+    ),
+    radial-gradient(
+      circle,
+      var(--color-rivet) 0 1px,
+      var(--color-rivet-shadow) 1.1px 2px,
+      transparent 2.1px
+    ),
+    radial-gradient(
+      circle,
+      var(--color-rivet) 0 1px,
+      var(--color-rivet-shadow) 1.1px 2px,
+      transparent 2.1px
+    ),
+    repeating-linear-gradient(
+      to right,
+      var(--color-weld) 0 var(--texture-weld-dash),
+      transparent var(--texture-weld-dash) calc(var(--texture-weld-dash) + var(--texture-weld-gap))
+    );
+  background-size:
+    var(--texture-rivet-size) var(--texture-rivet-size),
+    var(--texture-rivet-size) var(--texture-rivet-size),
+    var(--texture-rivet-size) var(--texture-rivet-size),
+    var(--texture-rivet-size) var(--texture-rivet-size),
+    calc(100% - 24px) 1px;
+  background-position: left top, right top, left bottom, right bottom, 14px bottom;
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+  clip-path: none;
+  pointer-events: none;
+}
+
+.entry-market:hover {
+  border-color: var(--w-steel-line);
+}
+
+/* 浅色钢板：表格 / 侧栏。焊缝用暖灰虚线，错位 1px 像两块板拼起来。 */
+.t-terminal {
+  position: relative;
+  border-color: var(--color-line-strong);
+  box-shadow:
+    inset 0 1px 0 var(--color-plate-highlight),
+    0 0 0 1px var(--color-plate-edge);
+}
+
+.t-terminal::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+  height: 1px;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--color-weld-dark) 0 var(--texture-weld-dash),
+    transparent var(--texture-weld-dash) calc(var(--texture-weld-dash) + var(--texture-weld-gap))
+  );
+  pointer-events: none;
+}
+
+.t-detail-aside {
+  position: relative;
+  border-color: var(--color-line-strong);
+}
+
+.t-detail-aside::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: -1px;
+  height: 1px;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--color-weld-dark) 0 var(--texture-weld-dash),
+    transparent var(--texture-weld-dash) calc(var(--texture-weld-dash) + var(--texture-weld-gap))
+  );
+  pointer-events: none;
+}
+
+/* 表头落在沉底沙色上，改用正文墨色保证 ≥4.5:1。 */
+.t-table thead th {
+  color: var(--color-ink-2);
+}
+
+/* ---------- 2. 信号条 / Live 灯 ---------- */
+
+.w-ticker {
+  position: relative;
+  height: var(--ticker-height);
+  overflow: hidden;
+  background: var(--color-graphite-2);
+  border-bottom: var(--hairline) solid var(--w-steel-line);
+  color: var(--color-on-dark);
+}
+
+.w-ticker::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--color-scanline) 0 1px,
+    transparent 1px var(--texture-scan-gap)
+  );
+}
+
+.w-ticker-track {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  width: max-content;
+  height: 100%;
+  animation: ticker-scroll var(--ticker-duration) linear infinite;
+  will-change: transform;
+}
+
+.w-ticker:hover .w-ticker-track,
+.w-ticker:focus-within .w-ticker-track {
+  animation-play-state: paused;
+}
+
+.w-ticker-track:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--color-signal);
+}
+
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.w-ticker-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding-right: var(--space-6);
+  white-space: nowrap;
+}
+
+.w-ticker-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.w-ticker-name {
+  color: var(--color-on-dark-muted);
+}
+
+.w-ticker-price {
+  color: var(--color-on-dark);
+}
+
+.w-ticker-change.up {
+  color: var(--color-on-dark-up);
+}
+
+.w-ticker-change.down {
+  color: var(--color-on-dark-down);
+}
+
+.w-ticker-change.flat,
+.w-ticker-change.none {
+  color: var(--color-on-dark-flat);
+}
+
+.w-ticker-sep {
+  color: var(--color-graphite-4);
+}
+
+.w-ticker-date {
+  color: var(--color-signal);
+  letter-spacing: var(--tracking-wide);
+}
+
+.w-ticker-empty {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  color: var(--color-on-dark-muted);
+}
+
+/* Live 状态灯：琥珀圆点 + 呼吸光环；文字只写真实口径「LINK · 日频」。 */
+.w-live {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 34px;
+  padding: 0 var(--space-2);
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-on-dark-muted);
+  white-space: nowrap;
+}
+
+.w-live-dot {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-signal);
+  box-shadow: 0 0 6px var(--color-signal-glow);
+}
+
+.w-live-dot::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border: var(--hairline) solid var(--color-signal);
+  border-radius: 50%;
+  opacity: 0;
+  animation: live-breath 2.8s var(--ease-out) infinite;
+}
+
+@keyframes live-breath {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.4);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+/* ---------- 3. 磷光扫掠 / 雷达 / 数据轨 ---------- */
+
+.w-sweep {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0,
+    var(--color-sweep-soft) 38px,
+    var(--color-sweep-core) 80px,
+    transparent var(--sweep-width),
+    transparent 100%
+  );
+  transform: translateX(calc(-1 * var(--sweep-width)));
+  animation: phosphor-sweep var(--sweep-duration) linear infinite;
+}
+
+@keyframes phosphor-sweep {
+  from {
+    transform: translateX(calc(-1 * var(--sweep-width)));
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.w-radar {
+  position: absolute;
+  z-index: -1;
+  top: calc(var(--texture-stripe-height) + var(--space-2));
+  right: var(--space-4);
+  width: var(--radar-size);
+  height: var(--radar-size);
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: var(--radar-opacity);
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 298deg,
+    var(--color-radar-mid) 340deg,
+    var(--color-radar-tip) 359deg,
+    transparent 360deg
+  );
+  -webkit-mask-image: radial-gradient(circle, var(--texture-mask) 0 62%, transparent 72%);
+  mask-image: radial-gradient(circle, var(--texture-mask) 0 62%, transparent 72%);
+  animation: radar-spin var(--radar-duration) linear infinite;
+}
+
+@keyframes radar-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* 数据轨：竖向虚线缓慢下移，像数据在往下流。 */
+.w-rail {
+  width: 1px;
+  height: 24px;
+  margin: 0 auto;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--color-rust) 0 4px,
+    transparent 4px 10px
+  );
+  opacity: 0.55;
+  animation: rail-flow var(--rail-duration) linear infinite;
+}
+
+.w-rail-inline {
+  height: 16px;
+  margin: var(--space-1) auto;
+}
+
+@keyframes rail-flow {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 0 var(--rail-offset);
+  }
+}
+
+/* ---------- 4. 图表画线 / 流动光点 ---------- */
+
+.spark-line,
+.t-chart-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: chart-draw var(--chart-draw-duration) var(--ease-out) both;
+}
+
+@keyframes chart-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.t-chart-area {
+  animation: chart-fade var(--chart-draw-duration) var(--ease-out) both;
+}
+
+@keyframes chart-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.t-chart-flow {
+  fill: var(--color-signal);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* ---------- 5. 入场错峰 / 行 hover ---------- */
+
+.t-board,
+.t-detail-grid > *,
+.entry-grid > .entry {
+  animation: fade-up 240ms var(--ease-out) both;
+}
+
+.entry-grid > .entry:nth-child(2) {
+  animation-delay: var(--stagger-step);
+}
+
+.entry-grid > .entry:nth-child(3) {
+  animation-delay: calc(var(--stagger-step) * 2);
+}
+
+.t-detail-grid > *:nth-child(2) {
+  animation-delay: var(--stagger-step);
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 行 hover：只点亮左侧 1px 竖线与数值磷光，不做位移。 */
+.t-table tbody tr td:first-child {
+  transition: box-shadow 120ms var(--ease-out);
+}
+
+.t-table tbody tr:hover td:first-child {
+  box-shadow: inset 1px 0 0 var(--color-signal);
+}
+
+.t-table tbody tr td.num {
+  transition: text-shadow 120ms var(--ease-out);
+}
+
+.t-table tbody tr:hover td.num {
+  text-shadow: 0 0 6px var(--color-signal-glow);
+}
+
+/* 序号属于结构信息，用锈橙；琥珀留给仪器光。 */
+.entry-outlook .entry-id,
+.entry-qa .entry-id,
+.entry-outlook .entry-label,
+.entry-qa .entry-label {
+  color: var(--color-rust-deep);
+}
+
+/* 页脚不铺不透明底，让地面纹理贯通到页底。 */
+.site-footer {
+  background: transparent;
+}
+
+/* ---------- 6. 响应式与降级 ---------- */
+
+@media (max-width: 768px) {
+  /* 手机只保留信号条与图表画线；其余装饰动效全部收敛。 */
+  .w-sweep,
+  .w-radar,
+  .w-rail,
+  .w-live,
+  .t-chart-flow {
+    display: none;
+  }
+
+  .t-board,
+  .t-detail-grid > *,
+  .entry-grid > .entry {
+    animation: none;
+  }
+
+  .t-table tbody tr:hover td:first-child {
+    box-shadow: none;
+  }
+
+  .t-table tbody tr:hover td.num {
+    text-shadow: none;
+  }
+
+  .w-ticker-group {
+    gap: var(--space-4);
+    padding-right: var(--space-4);
+  }
+
+  .w-ticker-track {
+    animation-duration: 52s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::after,
+  .w-ticker-track,
+  .w-sweep,
+  .w-radar,
+  .w-rail,
+  .spark-line,
+  .t-chart-line,
+  .t-chart-area,
+  .w-live-dot::after,
+  .t-board,
+  .t-detail-grid > *,
+  .entry-grid > .entry {
+    animation: none !important;
+  }
+
+  .w-sweep,
+  .w-radar,
+  .t-chart-flow {
+    display: none;
+  }
+
+  .spark-line,
+  .t-chart-line {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+
+  .t-table tbody tr:hover td.num {
+    text-shadow: none;
+  }
+
+  .w-live-dot::after {
+    opacity: 0;
+  }
+}

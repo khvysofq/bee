@@ -1,67 +1,82 @@
 /* ============================================================
-   bee design tokens —— GUA-33 科技风格重构（v2）
+   bee design tokens —— GUA-33 科技风格重构（v3）
 
-   设计语言：「校准台 / Calibration Bench」。
-   面向回收站与废品贸易商的日频报价工具，界面按精密仪器的
-   读数面板来做：冷瓷底、石墨仪表盘、发丝测量网格；荧光信号
-   绿只用于「已验证 / 可操作」的校准标记，绝不用于涨跌方向。
+   设计语言：「沙暴终端 / DUST TERMINAL」。
+   废土上捡来的回收钢仪表盘，架在晒裂的混凝土地面上：沙色底、
+   氧化钢板、警示斜纹、铆钉与焊缝；读数像琥珀磷光 CRT，带轻微
+   辉光与扫描线。信息在流动，但只靠 CSS / 内联 SVG 动效，零请求。
+
+   分工：
+   - 琥珀（amber）只做「仪器光」：标题、刻度、光标、hover、状态灯；
+     绝不表达涨跌或数值好坏。
+   - 锈橙（rust）只做结构强调：警示斜纹、边框、section 编号。
+   - 装饰色里不出现绿色；绿只属于「跌」。
    数字是页面唯一的重量，其余结构一律退到发丝线。
 
-   规则：颜色 / 字号 / 间距 / 圆角 / 阴影 / 布局宽度必须引用
-   本文件变量；globals.css 通过 @import 引入，全站唯一样式源。
+   规则：颜色 / 字号 / 间距 / 圆角 / 阴影 / 布局宽度 / 质感数值
+   必须引用本文件变量；globals.css 通过 @import 引入，全站唯一样式源。
    ============================================================ */
 
 :root {
   color-scheme: light;
 
-  /* ---------- 色彩：冷瓷底 + 石墨仪表 ---------- */
-  --color-page: #edf1ef;           /* 页面底色：冷瓷（非暖纸） */
-  --color-page-deep: #e3e9e6;      /* 沉底区块 / 表头 */
-  --color-surface: #fbfcfb;        /* 浅色面板 */
-  --color-surface-raised: #ffffff; /* 表格 / 输入控件 */
-  --color-graphite: #101714;       /* 深色仪表盘 */
-  --color-graphite-2: #18211d;     /* 仪表盘内层 */
-  --color-graphite-3: #24332c;     /* 仪表盘描边 / hover */
-  --color-graphite-4: #2f443a;     /* 仪表盘内分割线 / 次级块 */
-  --color-ink: #0d1512;            /* 标题 / 主文字 */
-  --color-ink-2: #303c37;          /* 正文 */
-  --color-muted: #5e6c66;          /* 次级文字（合规文案最低对比档） */
-  --color-faint: #8b9892;          /* 装饰 / 弱化 meta（不承载合规文案） */
-  --color-line: #d5dfdb;           /* 发丝分隔线 */
-  --color-line-strong: #aebdb7;    /* 强调描边 */
-  --color-line-dark: rgba(242, 247, 244, 0.12); /* 石墨底上的发丝线 */
-  --color-grid-dark: rgba(242, 247, 244, 0.045); /* 仪表盘测量网格（极隐） */
-  --color-on-dark: #f2f7f4;        /* 石墨底主文字 */
-  --color-on-dark-muted: #9fb0a8;  /* 石墨底次级文字 */
-  --color-scrim: rgba(13, 21, 18, 0.56);
-  --color-row-hover: #f1f6f3;      /* 表格行 hover（不是斑马纹） */
-  --color-signal-line: rgba(201, 242, 91, 0.42); /* 图表交互线与标记 */
-  --color-on-dark-line: rgba(242, 247, 244, 0.16);
-  --color-ink-wash: rgba(13, 21, 18, 0.04); /* 浅底图表面积填充 */
+  /* ---------- 色彩：晒白水泥地 + 回收钢板仪表 ---------- */
+  --color-page: #c9bda6;           /* 页面底色：晒白的水泥 / 沙色 */
+  --color-page-deep: #b8ab92;      /* 沉底区块 / 表头 */
+  --color-surface: #efe7d5;        /* 浅色面板：旧石灰纸 */
+  --color-surface-raised: #f6efdf; /* 表格 / 输入控件（抬升一档） */
+  --color-graphite: #1b1714;       /* 深色仪表盘：氧化钢板 */
+  --color-graphite-2: #262019;     /* 仪表盘内层 */
+  --color-graphite-3: #342c23;     /* 仪表盘描边 / hover */
+  --color-graphite-4: #4a3d30;     /* 仪表盘内分割线 / 次级块 */
+  --color-ink: #1a1512;            /* 标题 / 主文字 */
+  --color-ink-2: #3a3129;          /* 正文 */
+  --color-muted: #564938;          /* 次级文字（合规文案最低对比档：沙底 4.7:1） */
+  --color-faint: #7d6c56;          /* 装饰 / 弱化 meta（不承载合规文案） */
+  --color-line: #b3a58c;           /* 发丝分隔线 */
+  --color-line-strong: #94856c;    /* 强调描边 */
+  --color-line-dark: rgba(242, 231, 208, 0.12); /* 钢板底上的发丝线 */
+  --color-grid-dark: rgba(242, 166, 59, 0.05); /* 仪表盘测量网格（极隐，琥珀） */
+  --color-on-dark: #f2e7d0;        /* 钢板底主文字 */
+  --color-on-dark-muted: #b3a58c;  /* 钢板底次级文字 */
+  --color-scrim: rgba(27, 23, 20, 0.6);
+  --color-row-hover: #e7dcc8;      /* 表格行 hover（不是斑马纹） */
+  --color-signal-line: rgba(242, 166, 59, 0.45); /* 图表交互线与标记 */
+  --color-on-dark-line: rgba(242, 231, 208, 0.16);
+  --color-ink-wash: rgba(58, 49, 41, 0.05); /* 浅底图表面积填充 */
+  --color-rust: #b4491e;           /* 锈橙：只做结构强调 */
+  --color-rust-deep: #7d3113;      /* 深锈：边框 / 编号 */
+  --color-rivet: rgba(242, 231, 208, 0.32); /* 铆钉高光 */
+  --color-weld: rgba(242, 231, 208, 0.16); /* 焊缝：低透明虚线 */
+  --color-weld-dark: rgba(94, 77, 55, 0.24); /* 浅面板上的焊缝 */
+  --color-vignette: rgba(61, 42, 20, 0.16); /* 风沙暗角 */
 
-  /* ---------- 色彩：唯一信号色（校准绿） ---------- */
-  --color-signal: #c9f25b;         /* 高可视信号绿：只用于标记与交互 */
-  --color-signal-deep: #8fb829;    /* 浅底上的信号色文本/线条（可读） */
-  --color-signal-ink: #16200a;     /* 信号绿底上的文字 */
-  --color-signal-soft: rgba(201, 242, 91, 0.16);
+  /* ---------- 色彩：唯一信号色（琥珀磷光） ----------
+     这里沿用 --color-signal 命名，值已从旧校准绿改为琥珀；
+     它只做仪器光，任何涨跌样式都不得引用。 */
+  --color-signal: #f2a63b;         /* 琥珀磷光：标记与交互 */
+  --color-signal-deep: #c07f28;    /* 浅底上的琥珀文本 / 线条（可读） */
+  --color-signal-ink: #1b1714;     /* 琥珀底上的文字 */
+  --color-signal-soft: rgba(242, 166, 59, 0.16);
+  --color-signal-glow: rgba(242, 166, 59, 0.35); /* 磷光辉光 */
 
   /* ---------- 色彩：行情语义（铁律：涨=红 / 跌=绿 / 平=灰） ---------- */
-  --color-up: #b42318;
-  --color-up-soft: #f8ecea;
-  --color-down: #0b7a4b;
-  --color-down-soft: #e9f4ee;
-  --color-flat: #5e6c66;
-  --color-on-dark-up: #ff8a7d;     /* 石墨底上的涨 */
-  --color-on-dark-down: #4bdd95;   /* 石墨底上的跌 */
-  --color-on-dark-flat: #aab8b1;
+  --color-up: #a32b12;             /* 锈红 */
+  --color-up-soft: #f3e2da;
+  --color-down: #1f6f4a;           /* 旧漆绿 */
+  --color-down-soft: #dfeae1;
+  --color-flat: #5f5344;
+  --color-on-dark-up: #ef8a68;     /* 钢板底上的涨 */
+  --color-on-dark-down: #6fbd93;   /* 钢板底上的跌 */
+  --color-on-dark-flat: #b3a58c;
 
   /* ---------- 色彩：状态 ---------- */
-  --color-warn: #7a5300;
-  --color-warn-soft: #f8f0dc;
-  --color-warn-line: #e5d3a4;
-  --color-error: #a3281e;
-  --color-error-soft: #f9ecea;
-  --color-error-line: #e7c4bf;
+  --color-warn: #7a4a00;
+  --color-warn-soft: #f5e5c6;
+  --color-warn-line: #d9b474;
+  --color-error: #96261a;
+  --color-error-soft: #f4dfd9;
+  --color-error-line: #d9a89c;
 
   /* ---------- 字体：中文结构 + 仪表数字 ---------- */
   --font-sans: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI',
@@ -142,9 +157,54 @@
   --radius-pill: 999px;
 
   /* ---------- 阴影（全站只有一个遮罩阴影；面板靠线与对比分层） ---------- */
-  --shadow-overlay: 0 -24px 64px rgba(13, 21, 18, 0.3);
-  --shadow-pop: 0 18px 40px rgba(13, 21, 18, 0.18);
+  --shadow-overlay: 0 -24px 64px rgba(27, 23, 20, 0.36);
+  --shadow-pop: 0 18px 40px rgba(27, 23, 20, 0.22);
   --shadow-focus: 0 0 0 2px var(--color-page), 0 0 0 4px var(--color-signal-deep);
+
+  /* ---------- 质感：颗粒 / 扫描线 / 焊缝 / 铆钉（全部零请求） ---------- */
+  /* 尘埃颗粒：内联 feTurbulence data-URI，约 0.4KB；仅此一处纹理图。 */
+  --texture-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  --texture-grain-size: 180px;      /* 颗粒 tile 尺寸（避免噪点墙） */
+  --texture-grain-opacity: 0.05;    /* 颗粒叠加强度 */
+  --texture-grid-size: 64px;        /* 地面测量网格间距 */
+  --texture-grid-color: rgba(120, 100, 72, 0.1); /* 地面暖灰测量网格 */
+  --texture-grid-drift: 8px;        /* 网格漂移位移（肉眼几乎不可见） */
+  --texture-grid-duration: 120s;    /* 网格漂移周期（≥110s） */
+  --texture-scan-gap: 3px;          /* 扫描线：1px 线 + 2px 间 */
+  --texture-scan-opacity: 0.16;     /* 扫描线透明度上限 */
+  --color-scanline: rgba(0, 0, 0, 0.16); /* 扫描线暗档（ticker / 面板） */
+  --color-panel-shade: rgba(0, 0, 0, 0.3); /* 面板 CRT 暗角 */
+  --color-rivet-shadow: rgba(0, 0, 0, 0.5); /* 铆钉下沿 */
+  --color-plate-highlight: rgba(255, 255, 255, 0.45); /* 浅钢板顶部高光 */
+  --color-plate-edge: rgba(94, 77, 55, 0.14); /* 浅钢板外落差 */
+  --color-sweep-soft: rgba(242, 166, 59, 0.05); /* 磷光扫掠外缘 */
+  --color-sweep-core: rgba(242, 166, 59, 0.12); /* 磷光扫掠核心 */
+  --color-radar-mid: rgba(242, 166, 59, 0.55); /* 雷达扇区中段 */
+  --color-radar-tip: rgba(242, 166, 59, 0.9); /* 雷达扇区前沿 */
+  --texture-vignette: 38%;          /* 风沙暗角半径 */
+  --texture-weld-dash: 5px;         /* 焊缝虚线长度 */
+  --texture-weld-gap: 7px;          /* 焊缝虚线间隔 */
+  --texture-rivet-size: 4px;        /* 铆钉绘制尺寸（视觉约 2px 实点） */
+  --texture-stripe-height: 3px;     /* 面板顶部警示斜纹高度 */
+  --texture-stripe-angle: 135deg;   /* 警示斜纹角度 */
+  --texture-stripe-rust: var(--color-rust);
+  --texture-stripe-dark: #201a15;
+  --w-steel-line: var(--color-graphite-3); /* 钢板描边 1px */
+  --w-steel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --w-steel-drop: 0 0 0 1px rgba(27, 23, 20, 0.55); /* 面板外一层更深的落差 */
+
+  /* ---------- 动效：信号条 / 扫掠 / 数据轨 / 雷达 / 画线 ---------- */
+  --ticker-height: 32px;
+  --ticker-duration: 46s;
+  --sweep-width: 160px;
+  --sweep-duration: 8s;
+  --rail-offset: 12px;
+  --rail-duration: 3s;
+  --radar-size: 92px;
+  --radar-duration: 4s;
+  --radar-opacity: 0.13;
+  --chart-draw-duration: 600ms;
+  --stagger-step: 40ms;
 
   /* ---------- 布局（结构性数值统一登记） ---------- */
   --width-page: 1600px;            /* 全站主容器（行情台加宽） */
