@@ -112,7 +112,7 @@ function changesFromPoints(
   return { day, week };
 }
 
-interface SeriesSqlRow {
+export interface SeriesSqlRow {
   id: string;
   code: string;
   name_cn: string;
@@ -132,6 +132,9 @@ interface SeriesSqlRow {
   last_date: string | null;
   obs_date: string | null;
   value: string | null;
+  volume: string | null;
+  /** 展示层标记：该合约是否为所属品种的成交主力（只在总览里挑一个）。 */
+  is_main?: boolean;
 }
 
 interface QuoteSqlRow {
@@ -211,6 +214,98 @@ async function loadTotals(database: BeeDb): Promise<{ series: number; points: nu
  * 总览查询：只取「可对外展示」且当前仍有数据的国内品类序列 + 国际基准，
  * 已过期合约不混进今日列表；它们仍在库里，单品页与溯源不受影响。
  */
+/** 合约代码末尾的 YYMM，用来在同成交量时按「先到期」排序。 */
+function expiryOf(code: string): number {
+  const match = code.match(/(\d{3,4})$/);
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+/** 交易所口径：ine.* 属于上期能源，shfe.* 属于上期所；bc 两边都登记过，按代码前缀认。 */
+function canonicalVenue(code: string, venue: string | null): string {
+  const prefix = code.split('.')[0]?.toUpperCase();
+  return prefix === 'SHFE' || prefix === 'INE' || prefix === 'CZCE' || prefix === 'DCE' || prefix === 'GFEX'
+    ? prefix
+    : (venue ?? '');
+}
+
+/**
+ * 总览只展示「一个品种一个合约」：同一品种（category + instrument）里挑成交量最大的主力合约。
+ *
+ * 为什么要在展示层挑：交易所目录里有几十个交割月（cu2610…cu2709），
+ * 逐月铺开等于把合约表当行情表，用户要的是一条「今天的铜价」。
+ * 库里数据不删、不聚合，单品页与溯源仍能查到每个合约。
+ *
+ * 顺带处理两个已知的数据毛刺：
+ *  1. bc（国际铜）同时被登记成 shfe.bc* 与 ine.bc*，按代码前缀认归属，避免同一合约出现两次；
+ *  2. 成交清淡的品种（如国际铜，约为沪铜的十分之一）不进总览，阈值 20%，避免并列一堆没人交易的合约。
+ */
+export function selectRepresentativeContracts<T extends { meta: SeriesSqlRow; points: MarketSparkPoint[] }>(
+  entries: T[],
+): T[] {
+  const futures = new Map<string, T[]>();
+  const rest: T[] = [];
+
+  for (const entry of entries) {
+    const { meta } = entry;
+    if (meta.kind === 'futures' && meta.category_code && meta.instrument_code) {
+      const key = `${meta.category_code}||${meta.instrument_code.toUpperCase()}`;
+      const list = futures.get(key);
+      if (list) list.push(entry);
+      else futures.set(key, [entry]);
+    } else {
+      rest.push(entry);
+    }
+  }
+
+  const volumeOf = (entry: { meta: SeriesSqlRow }): number => {
+    const raw = entry.meta.volume;
+    const parsed = raw === null ? null : Number(raw);
+    return parsed !== null && Number.isFinite(parsed) ? parsed : -1;
+  };
+
+  // 每个品种先挑一个主力合约。
+  const chosen: T[] = [];
+  for (const list of futures.values()) {
+    const sorted = [...list].sort((a, b) => {
+      const diff = volumeOf(b) - volumeOf(a);
+      if (diff !== 0) return diff;
+      // 同一合约被两个场所重复登记时，认代码前缀对应的那个场所。
+      const venueA = canonicalVenue(a.meta.code, a.meta.venue) === a.meta.venue ? 0 : 1;
+      const venueB = canonicalVenue(b.meta.code, b.meta.venue) === b.meta.venue ? 0 : 1;
+      if (venueA !== venueB) return venueA - venueB;
+      const expiry = expiryOf(a.meta.code) - expiryOf(b.meta.code);
+      if (expiry !== 0) return expiry;
+      return a.meta.code.localeCompare(b.meta.code);
+    });
+    const best = sorted[0];
+    if (best) chosen.push({ ...best, meta: { ...best.meta, is_main: true } });
+  }
+
+  // 再按品类剔除成交明显偏薄的品种（< 该品类主力成交量的 20%）。
+  const maxVolumeByCategory = new Map<string, number>();
+  for (const entry of chosen) {
+    const category = entry.meta.category_code ?? '';
+    const volume = volumeOf(entry);
+    if (volume <= 0) continue;
+    const current = maxVolumeByCategory.get(category) ?? 0;
+    if (volume > current) maxVolumeByCategory.set(category, volume);
+  }
+  const kept = chosen.filter((entry) => {
+    const volume = volumeOf(entry);
+    if (volume <= 0) return true; // 没有成交量字段的品种一律保留，不猜。
+    const max = maxVolumeByCategory.get(entry.meta.category_code ?? '') ?? 0;
+    return max <= 0 || volume >= max * 0.2;
+  });
+
+  return [...rest, ...kept];
+}
+
+function pickRepresentativeContracts<T extends { meta: SeriesSqlRow; points: MarketSparkPoint[] }>(
+  grouped: Map<string, T>,
+): T[] {
+  return selectRepresentativeContracts([...grouped.values()]);
+}
+
 async function loadSeriesRows(database: BeeDb): Promise<{ rows: MarketRow[]; globalLatest: string | null }> {
   const result = await database.execute(sql`
     with latest as (
@@ -238,10 +333,10 @@ async function loadSeriesRows(database: BeeDb): Promise<{ rows: MarketRow[]; glo
            or (s.category_id is not null and stats.last_date >= latest.max_date - interval '30 days')
          )
     )
-    select scoped.*, p.obs_date::text as obs_date, p.value::text as value
+    select scoped.*, p.obs_date::text as obs_date, p.value::text as value, p.volume::text as volume
       from scoped
       join lateral (
-        select obs_date, value
+        select obs_date, value, volume
           from series_point
          where series_id = scoped.id
          order by obs_date desc, revision desc
@@ -257,6 +352,8 @@ async function loadSeriesRows(database: BeeDb): Promise<{ rows: MarketRow[]; glo
     const obsDate = isoDate(raw.obs_date);
     const value = numericToNumber(raw.value);
     if (!obsDate || value === null) continue;
+    // 每个合约只认最新一天的成交量（查询已按 obs_date 降序，第一次即最新）。
+    const volume = numericToNumber(raw.volume);
     const row = grouped.get(raw.id);
     if (row) {
       // 同一天可能有修正版本；查询已按 revision 降序，只保留第一条。
@@ -265,19 +362,21 @@ async function loadSeriesRows(database: BeeDb): Promise<{ rows: MarketRow[]; glo
       }
     } else {
       grouped.set(raw.id, {
-        meta: { ...raw, last_date: lastDate },
+        meta: { ...raw, last_date: lastDate, volume: volume === null ? null : String(volume) },
         points: [{ date: obsDate, value }],
       });
     }
   }
 
+  const groupedEntries = pickRepresentativeContracts(grouped);
+
   let globalLatest: string | null = null;
-  for (const { meta } of grouped.values()) {
+  for (const { meta } of groupedEntries) {
     if (meta.last_date && (!globalLatest || meta.last_date > globalLatest)) globalLatest = meta.last_date;
   }
 
   const rows: MarketRow[] = [];
-  for (const { meta, points } of grouped.values()) {
+  for (const { meta, points } of groupedEntries) {
     const pointsDesc = [...points].sort((a, b) => (a.date < b.date ? 1 : -1));
     const latest = pointsDesc[0] ?? null;
     if (!latest || !meta.last_date) continue;
@@ -301,7 +400,10 @@ async function loadSeriesRows(database: BeeDb): Promise<{ rows: MarketRow[]; glo
       categoryName: meta.category_name,
       instrument,
       spec,
-      market: [meta.venue ?? '—', marketKindLabel(meta.kind)].join(' · '),
+      // 总览里期货只展示一个主力合约，标签要写清楚，别让读者以为是「唯一报价」。
+      market: [meta.venue ?? '—', marketKindLabel(meta.kind), meta.is_main && meta.kind === 'futures' ? '主力' : '']
+        .filter(Boolean)
+        .join(' · '),
       marketKind: marketKindLabel(meta.kind),
       unit: meta.unit_name ?? (meta.currency === 'USD' ? '美元/吨' : '元/吨'),
       currency: meta.currency,
