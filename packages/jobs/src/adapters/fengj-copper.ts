@@ -75,6 +75,30 @@ function tableRows(html: string): string[][] {
   return rows;
 }
 
+/**
+ * 真实页面的表格不是 <table>，而是：
+ *   <div class="roll_list_name"><span>品名</span>…<span class="time">时间</span></div>
+ *   <ul class="roll_list" id="scrollText"><li><span>…</span>…</li></ul>
+ * 所以两种结构都要认：table 优先（老页面/其它镜像），否则读 roll_list。
+ */
+function rollListRows(html: string): string[][] {
+  const rows: string[][] = [];
+  for (const listMatch of html.matchAll(/<ul[^>]*class="[^"]*roll_list[^"]*"[^>]*>([\s\S]*?)<\/ul>/gi)) {
+    for (const itemMatch of (listMatch[1] ?? '').matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)) {
+      const cells: string[] = [];
+      for (const spanMatch of (itemMatch[1] ?? '').matchAll(/<span[^>]*>([\s\S]*?)<\/span>/gi)) {
+        cells.push(textOf(spanMatch[1] ?? ''));
+      }
+      if (cells.length >= REQUIRED_COLUMNS.length) rows.push(cells);
+    }
+  }
+  return rows;
+}
+
+function hasRollListHeader(html: string): boolean {
+  return /class="[^"]*roll_list_name[^"]*"/i.test(html) && html.includes('品名') && html.includes('价格');
+}
+
 function headerIndex(header: string[]): Record<ColumnName, number> | null {
   const index = {} as Record<ColumnName, number>;
   for (const name of REQUIRED_COLUMNS) {
@@ -86,23 +110,41 @@ function headerIndex(header: string[]): Record<ColumnName, number> | null {
 }
 
 export function parseFengjCopperTable(html: string): FengjCopperRow[] {
-  const rows = tableRows(html);
-  if (rows.length === 0) {
-    throw new SchemaMismatchError('schema_mismatch: 页面里没有找到表格');
-  }
-  const headerAt = rows.findIndex((row) => row.includes('品名') && row.includes('价格'));
-  if (headerAt < 0) {
-    throw new SchemaMismatchError('schema_mismatch: 未找到「品名 / 价格」表头');
-  }
-  const index = headerIndex(rows[headerAt]!);
-  if (!index) {
-    throw new SchemaMismatchError(
-      `schema_mismatch: 表头缺列，需要 ${REQUIRED_COLUMNS.join(' / ')}，实际 ${rows[headerAt]!.join(' / ')}`,
-    );
+  const table = tableRows(html);
+  const list = table.length === 0 ? rollListRows(html) : [];
+
+  let rows: string[][];
+  let index: Record<ColumnName, number>;
+  let dataRows: string[][];
+
+  if (table.length > 0) {
+    const headerAt = table.findIndex((row) => row.includes('品名') && row.includes('价格'));
+    if (headerAt < 0) {
+      throw new SchemaMismatchError('schema_mismatch: 未找到「品名 / 价格」表头');
+    }
+    const headerIndexMap = headerIndex(table[headerAt]!);
+    if (!headerIndexMap) {
+      throw new SchemaMismatchError(
+        `schema_mismatch: 表头缺列，需要 ${REQUIRED_COLUMNS.join(' / ')}，实际 ${table[headerAt]!.join(' / ')}`,
+      );
+    }
+    rows = table;
+    index = headerIndexMap;
+    dataRows = table.slice(headerAt + 1);
+  } else if (list.length > 0) {
+    if (!hasRollListHeader(html)) {
+      throw new SchemaMismatchError('schema_mismatch: roll_list 缺少「品名 / 价格」表头');
+    }
+    // roll_list 的列序固定，与表头一一对应；不按位置猜，直接按登记顺序取。
+    index = Object.fromEntries(REQUIRED_COLUMNS.map((name, at) => [name, at])) as Record<ColumnName, number>;
+    rows = list;
+    dataRows = list;
+  } else {
+    throw new SchemaMismatchError('schema_mismatch: 页面里既没有价格表也没有 roll_list 列表');
   }
 
   const result: FengjCopperRow[] = [];
-  for (const cells of rows.slice(headerAt + 1)) {
+  for (const cells of dataRows) {
     if (cells.every((cell) => cell.length === 0)) continue;
     if (cells.length < REQUIRED_COLUMNS.length) {
       throw new SchemaMismatchError(
@@ -118,7 +160,10 @@ export function parseFengjCopperTable(html: string): FengjCopperRow[] {
     const unit = get('单位');
     const changeText = get('涨跌');
     const dateText = get('时间');
-    if (!category || !city || !priceText || !unit) {
+    // 真实页面存在「只填省份、城市留空」的行（例：黄铜水箱 / 天津 / 空）。
+    // 地域取 city || province，两个都空才算数据缺失；不替它编一个城市。
+    const regionText = city || province;
+    if (!category || !regionText || !priceText || !unit) {
       throw new SchemaMismatchError(`schema_mismatch: 必填单元格为空（${cells.join(' | ')}）`);
     }
     const quoteDate = parseDate(dateText);
@@ -137,7 +182,7 @@ export function parseFengjCopperTable(html: string): FengjCopperRow[] {
       rawCategoryText: category,
       rawSpecText: spec || null,
       rawProvinceText: province || null,
-      rawRegionText: city,
+      rawRegionText: regionText,
       // 表格没有价类型列：统一按「参考价」声明，这是来源列表口径，不是从数字推断。
       rawPriceTypeText: '参考价',
       rawUnit: unit,
