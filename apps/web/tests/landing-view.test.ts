@@ -15,9 +15,11 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { DetailView } from '../src/components/DetailView';
 import { LandingView } from '../src/components/LandingView';
 import { MarketView } from '../src/components/MarketView';
 import { OutlookView } from '../src/components/OutlookView';
+import { OverviewView } from '../src/components/OverviewView';
 import { QaView } from '../src/components/QaView';
 import {
   AI_LABEL,
@@ -31,6 +33,8 @@ import {
 } from '../src/lib/compliance';
 import type { BriefingData } from '../src/lib/briefing-data';
 import type { LandingData } from '../src/lib/landing-data';
+import type { MarketDetail } from '../src/lib/market-detail';
+import type { MarketOverview } from '../src/lib/market-overview';
 import { REFUSAL_COPY, SANCTIONED_FORECAST_PHRASE } from '../src/lib/qa/intent';
 import { collectRenderedFigures, numberTokens, proseOf, type QaAnswer } from '../src/lib/qa/types';
 
@@ -777,7 +781,7 @@ describe('GUA-35 行业问答页', () => {
     expect(html).toContain('标明报价日与范围');
     // 导航只有三入口，问答页内只指向已有的两个页面，不新增第四项。
     const answered = renderQa(factAnswer);
-    expect(answered).toContain('href="/market"');
+    expect(answered).toContain('href="/"');
     expect(answered).toContain('href="/outlook"');
   });
 });
@@ -799,5 +803,275 @@ describe('GUA-33 页脚数据说明的条件呈现', () => {
       statsSourceUrl: null,
     });
     expect(notesBlock(withoutStats)).not.toContain(STATS_ATTRIBUTION);
+  });
+});/* ============================================================
+   行情台 v3：总览 + 单品页
+   ============================================================ */
+
+const overview: MarketOverview = {
+  generatedAt: '2026-10-27T00:00:00.000Z',
+  globalLatest: '2026-10-26',
+  rows: [
+    {
+      key: 'series-intl',
+      slug: 's-fred.PCOPPUSDM',
+      kind: 'series',
+      scope: 'international',
+      categoryCode: 'scrap-copper',
+      categoryName: '废铜',
+      instrument: '废铜',
+      spec: '国际铜价（月均，美元/吨）',
+      market: 'FRED · 指数',
+      marketKind: '指数',
+      unit: '美元/吨',
+      currency: 'USD',
+      frequency: 'monthly',
+      frequencyLabel: '月频',
+      latestValue: 9999.1,
+      latestDate: '2026-09-01',
+      dayChange: null,
+      weekChange: null,
+      pointCount: 417,
+      updatedAt: '2026-09-01',
+      trust: 'normal',
+      trustLabel: '正常',
+      spark: [
+        { date: '2026-08-01', value: 9800 },
+        { date: '2026-09-01', value: 9999.1 },
+      ],
+      note: '国际基准',
+    },
+    {
+      key: 'series-rb',
+      slug: 's-shfe.rb2701',
+      kind: 'series',
+      scope: 'domestic',
+      categoryCode: 'scrap-steel',
+      categoryName: '废钢',
+      instrument: '废钢',
+      spec: '螺纹钢 rb2701',
+      market: 'SHFE · 期货',
+      marketKind: '期货',
+      unit: '元/吨',
+      currency: 'CNY',
+      frequency: 'daily',
+      frequencyLabel: '日频',
+      latestValue: 3041,
+      latestDate: '2026-10-26',
+      dayChange: { date: '2026-10-25', previousValue: 3004, pct: 1.23 },
+      weekChange: { date: '2026-10-19', previousValue: 3056.3, pct: -0.5 },
+      pointCount: 185,
+      updatedAt: '2026-10-26',
+      trust: 'normal',
+      trustLabel: '正常',
+      spark: [
+        { date: '2026-10-24', value: 2990 },
+        { date: '2026-10-25', value: 3004 },
+        { date: '2026-10-26', value: 3041 },
+      ],
+      note: 'SHFE 日行情结算价',
+    },
+    {
+      key: 'quote-paper',
+      slug: 'q-quote-paper',
+      kind: 'quote',
+      scope: 'domestic',
+      categoryCode: 'waste-paper',
+      categoryName: '废纸',
+      instrument: '废纸',
+      spec: '瓦楞纸 AA级120g',
+      market: '国家统计局 · 旬价',
+      marketKind: '统计报价',
+      unit: '元/吨',
+      currency: 'CNY',
+      frequency: 'irregular',
+      frequencyLabel: '旬价',
+      latestValue: 4868.7,
+      latestDate: '2026-10-20',
+      dayChange: null,
+      weekChange: null,
+      pointCount: 1,
+      updatedAt: '2026-10-20',
+      trust: 'reference',
+      trustLabel: '参考锚点',
+      spark: [{ date: '2026-10-20', value: 4868.7 }],
+      note: '全国参考锚点价',
+    },
+  ],
+  categories: [
+    { code: 'scrap-steel', name: '废钢', count: 1 },
+    { code: 'scrap-copper', name: '废铜', count: 1 },
+    { code: 'waste-paper', name: '废纸', count: 1 },
+  ],
+  regions: [
+    { code: 'cn-east', name: '华东', rowCount: 0 },
+    { code: 'cn-south', name: '华南', rowCount: 0 },
+  ],
+  counts: { series: 1756, points: 288377, quotes: 1, international: 1, domestic: 2, regional: 0 },
+  dataCutoffAt: '2026-10-20T08:00:00.000Z',
+  hasStatsSource: true,
+  statsSourceUrl: fixtureUrl,
+  hasFixtureSource: false,
+};
+
+describe('行情台 v3：总览', () => {
+  function renderOverview(props: Partial<Parameters<typeof OverviewView>[0]> = {}): string {
+    return renderToStaticMarkup(createElement(OverviewView, { data: overview, ...props }));
+  }
+
+  it('三个范围页签与品类筛选在场；数字、涨跌与可信标记来自传入数据', () => {
+    const html = renderOverview({ initialScope: 'domestic' });
+    expect(html).toContain('国际');
+    expect(html).toContain('国内');
+    expect(html).toContain('区域');
+    expect(html).toContain('螺纹钢 rb2701');
+    expect(html).toContain('3,041');
+    expect(html).toContain('+1.23%');
+    expect(html).toContain('-0.50%');
+    expect(html).toContain('参考锚点');
+    expect(html).toContain('185');
+    expect(html).toContain('spark-line');
+    expect(html).toContain('href="/m/s-shfe.rb2701"');
+  });
+
+  it('月频序列不冒充日涨跌：显示「月频不适用」', () => {
+    const html = renderOverview({ initialScope: 'international' });
+    expect(html).toContain('9,999.1');
+    expect(html).toContain('月频不适用');
+    expect(html).not.toContain('+1.23%');
+  });
+
+  it('区域层没有数据时明确「待接入」，并列出区域骨架，不留白假装有数据', () => {
+    const html = renderOverview({ initialScope: 'regional' });
+    expect(html).toContain('区域现货：待接入');
+    expect(html).toContain('待接入');
+    expect(html).toContain('华东');
+    expect(html).toContain('华南');
+    expect(html).not.toContain('3,041');
+    expect(html).not.toContain('4,868.7');
+  });
+
+  it('品类搜索是前端过滤：关键词只留下匹配行', () => {
+    const html = renderOverview({ initialScope: 'domestic', initialQuery: '瓦楞' });
+    expect(html).toContain('瓦楞纸 AA级120g');
+    expect(html).not.toContain('螺纹钢 rb2701');
+  });
+});
+
+const detail: MarketDetail = {
+  kind: 'series',
+  slug: 's-shfe.rb2701',
+  categoryCode: 'scrap-steel',
+  categoryName: '废钢',
+  title: '废钢',
+  spec: '螺纹钢 rb2701',
+  market: 'SHFE · 期货结算价',
+  marketKind: '期货结算价',
+  unit: '元/吨',
+  currency: 'CNY',
+  frequencyLabel: '日频',
+  summary: 'SHFE 日行情结算价（期货，预期价，非现货）',
+  sourceName: '上海期货交易所',
+  latestValue: 3041,
+  latestDate: '2026-10-26',
+  dayChange: { date: '2026-10-25', previousValue: 3004, pct: 1.23 },
+  weekChange: { date: '2026-10-19', previousValue: 3056.3, pct: -0.5 },
+  pointCount: 185,
+  trust: 'normal',
+  trustLabel: '正常',
+  points: [
+    { date: '2026-10-24', value: 2990 },
+    { date: '2026-10-25', value: 3004 },
+    { date: '2026-10-26', value: 3041 },
+  ],
+  recent: [
+    {
+      id: 'point-1',
+      date: '2026-10-26',
+      value: 3041,
+      open: 3010,
+      high: 3050,
+      low: 3005,
+      close: 3041,
+      settle: 3041,
+      volume: 120000,
+      openInterest: 880000,
+      revision: 1,
+      trace: {
+        pointId: 'point-1',
+        fetchId: 'fetch-1',
+        sourceCode: 'shfe',
+        sourceName: '上海期货交易所',
+        url: 'https://www.shfe.com.cn/data/tradedata/future/dailydata/kx20261026.dat',
+        fetchedAt: '2026-10-26T08:00:00.000Z',
+        contentSha256: 'abc123',
+        sourceRowIndex: 42,
+      },
+      quoteId: undefined,
+    },
+  ],
+  peers: [
+    {
+      code: 'fred.PIORECRUSDM',
+      slug: 's-fred.PIORECRUSDM',
+      label: '铁矿石价格（月均）',
+      market: 'FRED · 国际基准',
+      unit: '美元/干吨',
+      currency: 'USD',
+      points: [
+        { date: '2026-08-01', value: 101 },
+        { date: '2026-09-01', value: 105 },
+      ],
+      latestValue: 105,
+      latestDate: '2026-09-01',
+    },
+  ],
+  quote: null,
+};
+
+describe('行情台 v3：单品页', () => {
+  const footer = {
+    hasFixtureSource: false,
+    hasStatsSource: true,
+    statsSourceUrl: fixtureUrl,
+    latestQuoteDate: '2026-10-26',
+    updatedAt: '2026-10-26',
+  };
+
+  const html = renderToStaticMarkup(createElement(DetailView, { detail, footer }));
+
+  it('头部超大读数、日/周涨跌、口径与来源来自传入数据', () => {
+    expect(html).toContain('t-hero-number');
+    expect(html).toContain('3,041');
+    expect(html).toContain('+1.23%');
+    expect(html).toContain('-0.50%');
+    expect(html).toContain('SHFE 日行情结算价（期货，预期价，非现货）');
+    expect(html).toContain('上海期货交易所');
+    expect(html).toContain('185');
+  });
+
+  it('主图范围切换与分层对比在场，图表是自绘 SVG', () => {
+    for (const range of ['1M', '3M', '1Y', '2Y', '全部']) expect(html).toContain(range);
+    expect(html).toContain('分层对比');
+    expect(html).toContain('铁矿石价格（月均）');
+    expect(html).toContain('t-peer-chart');
+    expect(html).toContain('<svg');
+  });
+
+  it('最近 30 期可展开溯源，挂载现有 /api/trace/* 契约', () => {
+    expect(html).toContain('最近 30 期');
+    expect(html).toContain('溯源');
+    expect(html).toContain('t-trace-btn');
+  });
+
+  it('今日观点 / 相关情报只显示「分析作业未上线」占位，不造假内容', () => {
+    expect(html).toContain('今日观点');
+    expect(html).toContain('相关情报');
+    expect(html).toContain('分析作业未上线');
+    expect(html).not.toContain('目标价');
+  });
+
+  it('合规文案仍在页脚数据说明', () => {
+    expectComplianceInNotes(html, { fixture: false, stats: true });
   });
 });
