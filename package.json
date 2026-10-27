@@ -18,7 +18,9 @@
     "db:migrate": "pnpm --filter @bee/db migrate",
     "db:seed": "pnpm --filter @bee/db seed",
     "data:fixture": "pnpm --filter @bee/pipeline fixture",
-    "data:stats": "pnpm --filter @bee/pipeline stats"
+    "data:stats": "pnpm --filter @bee/pipeline stats",
+    "series:exchange": "pnpm --filter @bee/pipeline exchange",
+    "series:intl": "pnpm --filter @bee/pipeline intl"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

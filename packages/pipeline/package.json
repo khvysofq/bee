@@ -9,7 +9,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "fixture": "tsx scripts/run-fixture.ts",
-    "stats": "tsx scripts/run-stats.ts"
+    "stats": "tsx scripts/run-stats.ts",
+    "exchange": "tsx scripts/run-exchange.ts",
+    "intl": "tsx scripts/run-intl.ts"
   },
   "dependencies": {
     "@bee/core": "workspace:*",

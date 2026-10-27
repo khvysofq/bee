@@ -13,3 +13,6 @@ export * from './adapters/fixture';
 export * from './adapters/stats';
 export * from './adapters/registry';
 export * from './seed-stats';
+export * from './series';
+export * from './series-sources';
+export * from './series-intl';

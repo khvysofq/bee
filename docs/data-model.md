@@ -7,7 +7,7 @@
 
 ---
 
-## 1. 分层总览：六层二十三表
+## 1. 分层总览：七层二十五表
 
 ```
 字典层  category, spec_grade, unit, unit_conversion,
@@ -17,6 +17,7 @@
 存档层  raw_content, raw_fetch            ← WORM：内容对象 + 抓取登记，永不改
 观测层  price_observation, validation_result
         ← 事实层：值永不改；只有校验状态/被取代指针可变；修正走 revision 链
+时序层  market_series, series_point        ← 期货/指数/库存/宏观；三层数据的载体（§9）
 定档层  daily_quote, derived_indicator, indicator_contribution
         ← 当前态：可由观测层重算；「全国」只能在这一层出现
 运行层  pipeline_run, pipeline_step, agent_invocation, exception_queue
@@ -33,6 +34,7 @@
 | 运行层 | append-only（run/step/invocation 禁改） | 管线自身 | 不修，追加新记录 |
 | 字典层 | 演进式：`status` draft→active→retired，不删行 | 种子/人/映射建议 | retire 旧值 + 新值生效，历史引用不失效 |
 | 来源层 | source 可改（开关/权重），source_event append-only | 人 + 运维 | source_event 留痕 |
+| 时序层 | 值不可变（触发器禁 UPDATE/DELETE/TRUNCATE） | series ingest step | 新 revision 行，旧值保留 |
 
 **为什么这样切**：可信度 = 「事实（抓到的原文与当时的读数）永不被任何人改写」+「发布值永远可以重算与回放」。
 把「事实」与「当前态」分成两张表（price_observation vs daily_quote），两种需求都不用妥协。
@@ -276,5 +278,60 @@ model、prompt_version + prompt_sha、input/output 原文、latency。
 定档：daily_quote, derived_indicator, indicator_contribution
 运行：pipeline_run, pipeline_step, agent_invocation, exception_queue
 
-（共 23 张；schema 代码 `packages/db/src/schema/`，迁移 `packages/db/migrations/`（0000 生成 + 0001 评审修复
-+ 0002 DAW-34 复审修复，不回写历史迁移），种子 `packages/db/scripts/seed.ts` 演示最小可跑的字典内容。）
+时序：market_series, series_point
+
+（共 25 张；schema 代码 `packages/db/src/schema/`，迁移 `packages/db/migrations/`（0000 生成 + 0001 评审修复
++ 0002 DAW-34 复审修复 + 0003 全国参考价 + 0004 时序层，不回写历史迁移），
+种子 `packages/db/scripts/seed.ts` 演示最小可跑的字典内容。）
+
+---
+
+## 9. 时序层（market_series / series_point）：三层数据的载体
+
+**为什么单开一层，而不是塞进 `price_observation`。**
+
+`price_observation` 的语义是「来源页面上的**一行价目**」：有 `raw_text`、有区间、有单位换算、要落规格字典。
+期货合约是「一个标的在某交易日的**一个结算价**」：没有区间，也不该进规格字典
+（rb2601/rb2605 是合约，不是规格；逐合约建 `spec_grade` 会让字典随换月无限膨胀）。
+
+更要紧的是**口径**：期货是预期价，现货是成交价。混在一张表里，「全国均价」的聚合迟早把两者算到一起——
+那是产品可信度上的自杀。所以纪律是硬的：
+
+> 现货与统计报价走 `price_observation`；期货/指数/库存/宏观走 `market_series + series_point`。
+> 两条链共用同一套不可变存档（`raw_fetch`）与台账（`pipeline_run`），溯源能力一致。
+
+### 9.1 三层
+
+| layer | 含义 | 典型序列 | 地域 |
+|---|---|---|---|
+| `international` | 国际基准 | FRED 铜/铝/镍/铁矿、世界银行 Pink Sheet、worldsteel 粗钢产量 | **不得挂 region**（CHECK + 触发器） |
+| `national` | 国内全国 | 上期所/上期能源/郑商所日行情、全国口径指数 | 可空；挂则只能 `country` |
+| `regional` | 区域 | 交割仓库库存、省级生产资料周报 | **必须挂** city / market / macro_region |
+
+层级 ↔ 地域由触发器 `bee_guard_series_region` 强制：把「全国」塞进区域序列、或给国际基准挂一个上海节点，
+都写不进去。这是 §4「全国只可能是聚合」的同一套物理化思路在时序层的复刻。
+
+### 9.2 表
+
+- `market_series`：序列定义。`code`（如 `shfe.rb2701`）、`layer`、`kind`（futures/index/inventory/macro）、
+  `frequency`、`source_id`、`category_id`、`region_id`、`instrument_code`（rb）、`venue`（SHFE/FRED）、
+  `unit_id`、`currency`、`display_allowed`、`status`。
+- `series_point`：数据点。`(series_id, obs_date, revision)` 唯一；`value` 为主值（期货=结算价），
+  OHLC/成交量/持仓量各自成列；`fetch_id` 指向本次抓取的原始响应，`source_row_index` 定位行号。
+
+### 9.3 不变量（DB 层强制）
+
+1. **值不可变**：`series_point` 禁 UPDATE / DELETE / TRUNCATE。修正 = 同序列同日期 `revision+1` 的新行，
+   旧值永远可查（`bee_series_point_guard`）。
+2. **幂等采集**：`(series_id, obs_date, revision)` 唯一 + `ON CONFLICT DO NOTHING`——
+   同一交易日重跑不会产生第二行。这是「两年回填可随时中断重跑」的基础。
+3. **归属一致**：`(series_id, source_id)` 复合外键指向 `market_series`，`(fetch_id, source_id)` 指向 `raw_fetch`——
+   时序点不能声称属于别的来源，也不能嫁接别人的抓取登记。
+4. **层级纪律**：见 §9.1。
+
+### 9.4 采集与展示口径
+
+- 采集器：`packages/pipeline/src/series.ts`（入库）+ `scripts/run-exchange.ts`（交易所日频）。
+  非交易日返回 404 → 跳过，不落存档、不记点。
+- 每条序列带 `display_allowed`：未取得再发布权的序列写 `false`，展示层直接过滤。
+- **期货结算价永远单独成栏**，标注「期货（预期价）」，与现货锚点、区域报价分开展示。

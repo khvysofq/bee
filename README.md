@@ -7,6 +7,7 @@
 - **P0-1（DAW-28）**：技术选型决策记录 + 数据模型定稿 + 可本地起服务的仓库骨架
 - **P0-3（GUA-15）**：fixture/CC0 数据管线端到端（采集→归档→抽取→规范化→Agent 校验→定档/指标→回放）
 - **P0-5（GUA-20，v1 真实数据）**：接入国家统计局「流通领域重要生产资料市场价格」旬报，五品类原生品全国参考锚点；废料分档层继续用 fixture 占位
+- **三层时序数据（2026-10-27）**：`market_series + series_point`，国际月频 / 国内天频 / 区域周频，见 [`docs/data-model.md`](docs/data-model.md) §9
 - 数据模型全文：[`docs/data-model.md`](docs/data-model.md)
 - 技术选型决策记录（ADR）：[`docs/adr/`](docs/adr/)
 - 口径字典与公开来源调研：[`docs/DAW-29-calibration-dictionary-v1.md`](docs/DAW-29-calibration-dictionary-v1.md)
@@ -26,6 +27,12 @@
   采集→抽取→规范化→Agent校验→聚合 ─┘                        └── 读 daily_quote /
   原始内容 → 内容寻址存档(本地FS→S3)                             derived_indicator 渲染
   调度：pg-boss（同库）                                          每个数字可点回原文
+
+                    ┌────────────────────────────────────────────────┐
+                    │  时序层（2026-10-27）：market_series / series_point │
+                    │  国际月频（FRED/世界银行）· 国内天频（交易所日行情）  │
+                    │  区域周频（交割库库存/省级周报）                     │
+                    └────────────────────────────────────────────────┘
 ```
 
 ## 仓库结构
@@ -53,6 +60,7 @@ pnpm install                      # 2. 安装依赖
 pnpm db:migrate                   # 3. 应用迁移（packages/db/migrations）
 pnpm db:seed                      # 4. 种子口径字典草案（5 品类 + 地域骨架 + 元/吨）
 pnpm data:stats                   # 5. 抓取最新一期统计局旬报（真实源；加 --snapshot 可离线回放）
+pnpm series:exchange --from 2024-10-27 --to 2026-10-27   # 5b. 交易所日行情回填（期货，天频）
 pnpm dev                          # 6. http://localhost:3000 —— 简报页 /briefing
 pnpm test                         # 验收测试（含「同一品类同城不同价」集成证明，需本地 Postgres）
 ```
@@ -81,6 +89,8 @@ pnpm test                         # 验收测试（含「同一品类同城不�
 4. **「全国均价」物理上只能是加工指标**（derived_indicator.is_aggregate 恒 1，UI 必须标注）。
 5. **每一步留痕**：管线 run/step 台账 + validation_result + agent_invocation，可按版本回放。
 6. **人只出现在异常队列与口径决策点**（exception_queue + caliber_decision 是这两个点的物理形态）。
+7. **期货不是现货**：期货结算价（预期价）走 `market_series + series_point`，现货/统计报价走
+   `price_observation`；两者永不进同一个「全国均价」。层级（国际/国内/区域）↔ 地域层级由触发器绑定。
 
 ## 测试与迁移规范（Dawan 研发规范在数据层的落点）
 

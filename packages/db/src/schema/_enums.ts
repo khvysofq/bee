@@ -84,6 +84,27 @@ export const indicatorKindEnum = pgEnum('indicator_kind', [
   'city_aggregate',
 ]);
 
+/**
+ * 时序数据的展示层级（三层）：国际基准 / 国内全国 / 区域。
+ * 与 region.level 的区别：layer 是「这组数给谁看、和谁比」，region 是「它挂在哪个地理节点」。
+ */
+export const dataLayerEnum = pgEnum('data_layer', ['international', 'national', 'regional']);
+
+/**
+ * 时序数据类型：期货行情 / 指数 / 库存仓单 / 宏观量（产量、进出口）。
+ * 期货是「预期价」，指数是「编制口径」，库存是「量」——三者都不能当现货报价参与现货均价。
+ */
+export const seriesKindEnum = pgEnum('series_kind', ['futures', 'index', 'inventory', 'macro']);
+
+/** 时序频率。月频序列用当月 1 日作为 obs_date。 */
+export const seriesFrequencyEnum = pgEnum('series_frequency', [
+  'daily',
+  'weekly',
+  'monthly',
+  'quarterly',
+  'annual',
+]);
+
 /** 管线运行类型。replay 专门承载回放运行。 */
 export const runKindEnum = pgEnum('run_kind', [
   'daily_collect',
