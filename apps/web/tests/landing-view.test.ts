@@ -5,10 +5,12 @@
  *  1. 首页三区（行情数据 / 趋势推演 / 行业问答）一眼可见，数字与涨跌来自传入数据；
  *  2. 行情页：价格、涨跌、校验结论；来源列表 / 权重 / 抓取时间 / 方法版本 / 溯源挂载点零暴露；
  *  3. 趋势页：只画真实历史序列，保留「推翻条件」与「分析参考，非预测承诺」；
- *  4. 问答页：筹备中，不接提问、不展示演示答案；
+ *  4. 问答页（GUA-35）：空态可提问、事实型回答、越界拒绝、常识型引用、查不到就说没有；
+ *     回答区的每个数字都必须能在带出处的事实文本里找到，纯文字部分不含数字；
  *  5. 合规文案逐字位于页脚「数据说明」区块，版本号不进正文。
  *
- * 数字真实性由 packages/pipeline/tests/web-landing.integration.test.ts 对库回查保证。
+ * 数字真实性由 packages/pipeline/tests/web-landing.integration.test.ts 与
+ * packages/pipeline/tests/web-qa.integration.test.ts 对库回查保证。
  */
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -29,6 +31,8 @@ import {
 } from '../src/lib/compliance';
 import type { BriefingData } from '../src/lib/briefing-data';
 import type { LandingData } from '../src/lib/landing-data';
+import { REFUSAL_COPY, SANCTIONED_FORECAST_PHRASE } from '../src/lib/qa/intent';
+import { collectRenderedFigures, numberTokens, proseOf, type QaAnswer } from '../src/lib/qa/types';
 
 const fixtureUrl = 'https://www.stats.gov.cn/sj/zxfb/202610/t20261020.html';
 
@@ -500,45 +504,274 @@ describe('GUA-33 趋势推演页', () => {
   });
 });
 
-describe('GUA-33 行业问答页', () => {
-  const html = renderToStaticMarkup(
-    createElement(QaView, {
-      info: {
-        hasFixtureSource: true,
-        hasStatsSource: true,
-        statsSourceUrl: fixtureUrl,
-        latestQuoteDate: '2026-10-26',
-        updatedAt: '2026-10-26T07:15:00.000Z',
-      },
-    }),
-  );
+describe('GUA-35 行业问答页', () => {
+  const info = {
+    hasFixtureSource: true,
+    hasStatsSource: true,
+    statsSourceUrl: fixtureUrl,
+    latestQuoteDate: '2026-10-26',
+    updatedAt: '2026-10-26T07:15:00.000Z',
+  };
 
-  it('诚实筹备态：输入与按钮禁用，不接收提问、不展示演示答案', () => {
+  function renderQa(answer: QaAnswer | null = null): string {
+    return renderToStaticMarkup(createElement(QaView, { info, answer }));
+  }
+
+  /**
+   * 回答区：从 `qa-answer` 到下方能力说明区（`capability-title`）之间。
+   * 页面上的编号标签（能力卡片的 01 / 02 / 03）与页脚日期不属于回答内容，
+   * 因此不在数字来源检查范围内。
+   */
+  function answerRegion(html: string): string {
+    const start = html.indexOf('qa-answer');
+    if (start < 0) return '';
+    const end = html.indexOf('capability-title');
+    return end > start ? html.slice(start, end) : html.slice(start);
+  }
+
+  /** 去掉标签与实体，只留可见文本（`<h2>` 这类标签名里也有数字）。 */
+  function textOf(fragment: string): string {
+    return fragment
+      .replace(/<[^>]*>/g, '')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#x27;/g, "'");
+  }
+
+  /** 回答区里出现的每个数字，都必须能在带出处的事实文本里找到。 */
+  function expectDigitsOnlyFromFacts(answer: QaAnswer, html: string): void {
+    const region = textOf(answerRegion(html));
+    const tokens = region.match(/[0-9０-９]+(?:[.．][0-9０-９]+)?/g) ?? [];
+    const tracked = collectRenderedFigures(answer)
+      .map((figure) => `${figure.label} ${figure.text}`)
+      .join(' | ');
+    for (const token of tokens) {
+      expect(tracked, `回答区数字必须有出处：${token}`).toContain(token);
+    }
+  }
+
+  /** 纯文字部分（叙事 / 结论 / 缺口 / 拒绝话术 / 标签）一律不含数字。 */
+  function expectProseDigitFree(answer: QaAnswer): void {
+    for (const text of proseOf(answer)) {
+      expect(numberTokens(text), `纯文字不应含数字：${text}`).toEqual([]);
+    }
+  }
+
+  const quoteOrigin = (field: string) => ({ kind: 'daily_quote', id: 'dq-1', field }) as const;
+  const factAnswer: QaAnswer = {
+    question: '今天苏州重废多少',
+    intent: 'fact',
+    refusal: null,
+    headline: '查到了这一组合的当天报价',
+    narrative: [
+      '下面的数字全部取自报价库里已发布的记录：报价日、当日高低区间与中值，以及与上一交易日、上周同期的真实变化。',
+      '没有可比报价时，涨跌一栏显示为空缺，不当作持平，也不用估算值填充。',
+    ],
+    facts: [
+      {
+        kind: 'quote',
+        title: '废钢 · 重废 · 苏州 · 采购价',
+        refId: 'dq-1',
+        refTable: 'daily_quote',
+        rows: [
+          { label: '报价日', text: '2026-10-26', origin: quoteOrigin('quote_date'), hasNumber: true },
+          { label: '最低价', text: '2,350 元/吨', origin: quoteOrigin('value_low'), hasNumber: true },
+          { label: '最高价', text: '2,420 元/吨', origin: quoteOrigin('value_high'), hasNumber: true },
+          { label: '中值', text: '2,385 元/吨', origin: quoteOrigin('value_mid'), hasNumber: true },
+          {
+            label: '较上一交易日',
+            text: '▲ +0.63%（对比 2026-10-25）',
+            origin: quoteOrigin('change_prev'),
+            hasNumber: true,
+          },
+          { label: '较上周同期', text: '无可比报价', origin: quoteOrigin('change_week'), hasNumber: false },
+          { label: '可信度', text: '置信度高', origin: quoteOrigin('confidence'), hasNumber: false },
+        ],
+      },
+    ],
+    knowledge: [],
+    missing: [],
+    scope: {
+      latestQuoteDate: '2026-10-26',
+      rows: [
+        {
+          label: '最新报价日',
+          text: '2026-10-26',
+          origin: { kind: 'daily_quote_aggregate', field: 'latest_quote_date' },
+          hasNumber: true,
+        },
+        {
+          label: '当天覆盖地域',
+          text: '4 个',
+          origin: { kind: 'daily_quote_aggregate', field: 'regions' },
+          hasNumber: true,
+        },
+        {
+          label: '当天覆盖规格',
+          text: '3 个',
+          origin: { kind: 'daily_quote_aggregate', field: 'specs' },
+          hasNumber: true,
+        },
+        {
+          label: '当天报价条数',
+          text: '9 条',
+          origin: { kind: 'daily_quote_aggregate', field: 'quote_count' },
+          hasNumber: true,
+        },
+      ],
+      available: ['废钢 · 重废 · 苏州 · 采购价', '废钢 · 中废 · 临沂 · 采购价'],
+    },
+    aiAssisted: false,
+    factsAvailable: true,
+  };
+
+  const refusalAnswer: QaAnswer = {
+    question: '明天废钢会涨到多少',
+    intent: 'refusal',
+    refusal: {
+      code: 'price_forecast',
+      title: REFUSAL_COPY.price_forecast.title,
+      body: REFUSAL_COPY.price_forecast.body,
+    },
+    headline: '这个问题超出本站回答范围',
+    narrative: ['下面是我们能做的部分：把已经发生的数据讲清楚，把不做的部分说明白。'],
+    facts: [],
+    knowledge: [],
+    missing: [],
+    scope: null,
+    aiAssisted: false,
+    factsAvailable: false,
+  };
+
+  const knowledgeAnswer: QaAnswer = {
+    question: '重废和中废怎么分',
+    intent: 'knowledge',
+    refusal: null,
+    headline: '站内说明里有明确答案',
+    narrative: [
+      '以下内容引自站内自有的行业说明文档，条目下方给出出处，可以逐条追溯。',
+      '要看具体价格请回到行情数据页；本页文字不包含任何由模型生成的数字。',
+    ],
+    facts: [],
+    knowledge: [
+      {
+        id: 'kb-steel-grades',
+        title: '废钢等级怎么分',
+        summary: '按单件重量与厚度分成重废、中废、小废等档。',
+        body: ['重废：单件重量较大，常见 40 公斤/件以上，厚度 6 毫米以上。'],
+        citation: '行业分级说明 v1 · 废钢等级怎么分',
+      },
+    ],
+    missing: [],
+    scope: null,
+    aiAssisted: false,
+    factsAvailable: false,
+  };
+
+  it('空态：可输入可提交，示例问题是可点链接，不展示演示答案', () => {
+    const html = renderQa(null);
     expect(html).toContain('行业问答');
-    expect(html).toContain('筹备中');
-    expect(html).toContain('disabled');
-    expect(html).toContain('即将开放');
-    expect(html).toContain('不接收提问');
-    expect(html).toContain('不展示演示答案');
+    expect(html).toContain('method="get"');
+    expect(html).toContain('action="/qa"');
+    expect(html).toContain('name="q"');
+    expect(html).toContain('提问</button>');
+    expect(html).not.toContain('即将开放');
+    expect(html).not.toContain('qa-input" disabled');
     expect(html).not.toContain('qa-answer');
+    expect(html).toContain('href="/qa?q=');
+    expect(html).toContain('输入问题后开始查询');
+    expectNoInternalInfo(html);
+    expectComplianceInNotes(html, { fixture: true, stats: true });
   });
 
-  it('能力与边界清楚：不编造、不作交易建议、标明更新日期', () => {
+  it('已回答（事实型）：报价日、区间与变化全部来自事实层，纯文字不含数字', () => {
+    const html = renderQa(factAnswer);
+    expect(html).toContain('data-intent="fact"');
+    expect(html).toContain('废钢 · 重废 · 苏州 · 采购价');
+    expect(html).toContain('2026-10-26');
+    expect(html).toContain('2,385 元/吨');
+    expect(html).toContain('▲ +0.63%（对比 2026-10-25）');
+    expect(html).toContain('无可比报价');
+    expect(html).toContain('数据范围');
+    expect(html).toContain('当天可以看的组合');
+    expectProseDigitFree(factAnswer);
+    expectDigitsOnlyFromFacts(factAnswer, html);
+    expectNoInternalInfo(html);
+    expectComplianceInNotes(html, { fixture: true, stats: true });
+  });
+
+  it('拒绝态：话术逐字来自代码常量，页面上没有任何数字', () => {
+    const html = renderQa(refusalAnswer);
+    expect(html).toContain('data-intent="refusal"');
+    expect(html).toContain(REFUSAL_COPY.price_forecast.title);
+    for (const line of REFUSAL_COPY.price_forecast.body) {
+      expect(html).toContain(line);
+    }
+    expect(textOf(answerRegion(html)).match(/[0-9０-９]/g) ?? []).toEqual([]);
+    expect(html.split(SANCTIONED_FORECAST_PHRASE).join('')).not.toContain('预测');
+    expectNoInternalInfo(html);
+    expectComplianceInNotes(html, { fixture: true, stats: true });
+  });
+
+  it('常识型：条目正文 + 对外出处标签，不暴露文档路径与内部编号', () => {
+    const html = renderQa(knowledgeAnswer);
+    expect(html).toContain('data-intent="knowledge"');
+    expect(html).toContain('废钢等级怎么分');
+    expect(html).toContain('出处：行业分级说明 v1 · 废钢等级怎么分');
+    expect(html).not.toContain('docs/');
+    expect(html).not.toContain('.md');
+    expectProseDigitFree(knowledgeAnswer);
+    expectDigitsOnlyFromFacts(knowledgeAnswer, html);
+    expectNoInternalInfo(html);
+    expectComplianceInNotes(html, { fixture: true, stats: true });
+  });
+
+  it('模型参与叙事时打「AI 辅助生成」标记，数字仍然只来自事实层', () => {
+    const html = renderQa({ ...factAnswer, aiAssisted: true });
+    expect(html).toContain('本次叙事由 AI 辅助生成');
+    expect(html).toContain('不由模型生成');
+    expectNoInternalInfo(html);
+  });
+
+  it('查不到时诚实说明缺口，不当作持平、不给估算值', () => {
+    const missingAnswer: QaAnswer = {
+      ...factAnswer,
+      question: '今天昆明统料多少',
+      headline: '这一组合没有查到报价',
+      narrative: [
+        '报价库里没有这一组合在最新报价日的记录，因此不给出任何数字。',
+        '下方列出的是当天真实可看的组合；范围之外的品类与地域，我们不猜也不估。',
+      ],
+      facts: [],
+      missing: [
+        '最新报价日没有「废钢 · 统料 · 昆明 · 采购价」这一组合的报价。',
+        '没有就是没有：不当作持平，不用估算值填充，也不拿其他日期或其他地域的数字顶替。',
+      ],
+    };
+    const html = renderQa(missingAnswer);
+    expect(html).toContain('这一组合没有查到报价');
+    expect(html).toContain('没有查到的部分');
+    expect(html).toContain('没有就是没有');
+    expect(html).toContain('不当作持平');
+    expect(html).not.toContain('视为持平');
+    // 缺口说明本身不含任何数字；页面上剩下的数字仍然只能来自数据范围。
+    expectProseDigitFree(missingAnswer);
+    expectDigitsOnlyFromFacts(missingAnswer, html);
+    expectNoInternalInfo(html);
+    expectComplianceInNotes(html, { fixture: true, stats: true });
+  });
+
+  it('能力与边界说明保留：不编造、不作交易建议、标明报价日与范围', () => {
+    const html = renderQa(null);
     expect(html).toContain('不编造');
     expect(html).toContain('不作交易建议');
-    expect(html).toContain('标明更新日期');
-    expect(html).toContain('href="/market"');
-    expect(html).toContain('href="/outlook"');
-  });
-
-  it('无内部信息、无假问答内容', () => {
-    expectNoInternalInfo(html);
-    expect(html.replace('分析参考，非预测承诺', '')).not.toContain('预测');
-    expect(html).not.toContain('答：');
-  });
-
-  it('合规文案逐字在页脚「数据说明」', () => {
-    expectComplianceInNotes(html, { fixture: true, stats: true });
+    expect(html).toContain('标明报价日与范围');
+    // 导航只有三入口，问答页内只指向已有的两个页面，不新增第四项。
+    const answered = renderQa(factAnswer);
+    expect(answered).toContain('href="/market"');
+    expect(answered).toContain('href="/outlook"');
   });
 });
 

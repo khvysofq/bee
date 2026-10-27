@@ -32,6 +32,66 @@ export interface TrendPoint {
   value: number;
 }
 
+/** 序列点：多带一个 daily_quote 行 id，供行业问答做数字回查（GUA-35）。 */
+export interface QuoteSeriesPoint extends TrendPoint {
+  quoteId: string;
+}
+
+/** key = 品类 code|规格名|地域名|价格类型。 */
+export type QuoteSeriesMap = Map<string, QuoteSeriesPoint[]>;
+
+export function quoteSeriesKey(parts: {
+  categoryCode: string;
+  specName: string;
+  regionName: string;
+  priceType: string;
+}): string {
+  return [parts.categoryCode, parts.specName, parts.regionName, parts.priceType].join('|');
+}
+
+/** 序列取样起点（含）：最新报价日往前 TREND_WINDOW_DAYS 天。 */
+export function seriesCutoff(latestQuoteDate: string | null): string | null {
+  return latestQuoteDate ? addDays(latestQuoteDate, -(TREND_WINDOW_DAYS - 1)) : null;
+}
+
+/**
+ * 全库已发布报价的历史中值序列，按「品类×规格×地域×价类型」聚合（升序由调用方保证）。
+ * 只查 daily_quote，不接受任何手写价格；行业问答与趋势推演共用这一条查询。
+ */
+export async function loadQuoteSeries(database: BeeDb = defaultDb): Promise<QuoteSeriesMap> {
+  const seriesRows = await database
+    .select({
+      id: dbSchema.dailyQuote.id,
+      categoryCode: dbSchema.category.code,
+      specName: dbSchema.specGrade.nameCn,
+      regionName: dbSchema.region.nameCn,
+      priceType: dbSchema.dailyQuote.priceType,
+      quoteDate: dbSchema.dailyQuote.quoteDate,
+      valueMid: dbSchema.dailyQuote.valueMid,
+    })
+    .from(dbSchema.dailyQuote)
+    .innerJoin(dbSchema.category, eq(dbSchema.dailyQuote.categoryId, dbSchema.category.id))
+    .innerJoin(dbSchema.specGrade, eq(dbSchema.dailyQuote.specId, dbSchema.specGrade.id))
+    .innerJoin(dbSchema.region, eq(dbSchema.dailyQuote.regionId, dbSchema.region.id))
+    .where(eq(dbSchema.dailyQuote.status, 'published'));
+
+  const seriesByKey: QuoteSeriesMap = new Map();
+  for (const row of seriesRows) {
+    const value = numericToNumber(row.valueMid);
+    if (value === null) continue;
+    const key = quoteSeriesKey({
+      categoryCode: row.categoryCode,
+      specName: row.specName,
+      regionName: row.regionName,
+      priceType: row.priceType,
+    });
+    const list = seriesByKey.get(key) ?? [];
+    list.push({ date: row.quoteDate, value, quoteId: row.id });
+    seriesByKey.set(key, list);
+  }
+  return seriesByKey;
+}
+
 export interface LandingQuote {
   id: string;
   specName: string;
@@ -115,44 +175,25 @@ function toLandingQuote(quote: BriefingQuote): LandingQuote {
 export async function loadLandingData(database: BeeDb = defaultDb): Promise<LandingData> {
   const briefing = await loadBriefing(database);
 
-  // 走势序列：与简报同源的 daily_quote 已发布定档，按「品类×规格×地域×价类型」聚成时间序列。
-  const seriesRows = await database
-    .select({
-      categoryCode: dbSchema.category.code,
-      specName: dbSchema.specGrade.nameCn,
-      regionName: dbSchema.region.nameCn,
-      priceType: dbSchema.dailyQuote.priceType,
-      quoteDate: dbSchema.dailyQuote.quoteDate,
-      valueMid: dbSchema.dailyQuote.valueMid,
-    })
-    .from(dbSchema.dailyQuote)
-    .innerJoin(dbSchema.category, eq(dbSchema.dailyQuote.categoryId, dbSchema.category.id))
-    .innerJoin(dbSchema.specGrade, eq(dbSchema.dailyQuote.specId, dbSchema.specGrade.id))
-    .innerJoin(dbSchema.region, eq(dbSchema.dailyQuote.regionId, dbSchema.region.id))
-    .where(eq(dbSchema.dailyQuote.status, 'published'));
-
-  const seriesByKey = new Map<string, TrendPoint[]>();
-  for (const row of seriesRows) {
-    const value = numericToNumber(row.valueMid);
-    if (value === null) continue;
-    const key = [row.categoryCode, row.specName, row.regionName, row.priceType].join('|');
-    const list = seriesByKey.get(key) ?? [];
-    list.push({ date: row.quoteDate, value });
-    seriesByKey.set(key, list);
-  }
-
-  const cutoff = briefing.latestQuoteDate
-    ? addDays(briefing.latestQuoteDate, -(TREND_WINDOW_DAYS - 1))
-    : null;
+  // 走势序列：与简报同源的 daily_quote 已发布报价，按「品类×规格×地域×价类型」聚成时间序列。
+  const seriesByKey = await loadQuoteSeries(database);
+  const cutoff = seriesCutoff(briefing.latestQuoteDate);
 
   const categories: LandingCategory[] = briefing.categories.map((category) => {
     const representative = pickRepresentative(category.quotes, briefing.latestQuoteDate);
     let trend: TrendPoint[] = [];
     if (representative) {
-      const key = [category.code, representative.specName, representative.regionName, representative.priceType].join('|');
+      const key = quoteSeriesKey({
+        categoryCode: category.code,
+        specName: representative.specName,
+        regionName: representative.regionName,
+        priceType: representative.priceType,
+      });
       trend = (seriesByKey.get(key) ?? [])
         .filter((point) => !cutoff || point.date >= cutoff)
-        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+        // 落地页只渲染日期与中值；行 id 是问答做数字回查用的，不带进这一层。
+        .map((point): TrendPoint => ({ date: point.date, value: point.value }));
     }
     const latestQuoteCount = briefing.latestQuoteDate
       ? category.quotes.filter((quote) => quote.quoteDate === briefing.latestQuoteDate).length
