@@ -42,7 +42,7 @@ const FENGJ_JOB = {
   policy: { source_code: 'fengj', redistribution: 'internal_only' },
   priority: 5,
   enabled: false,
-  notes: 'P0 示范；默认停用，只有人工点「立即执行」才会发出真实请求（每次 1 个）。',
+  notes: '每日随机窗口抓取（07:10–09:30 之间挑整分钟）；来源网优，仅内部参考。种子默认停用，线上由管理页启用。',
 } as const;
 
 const DEMO_JOB = {
