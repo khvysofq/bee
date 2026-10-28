@@ -265,14 +265,19 @@ async function buildDigest(
     '本日报由 bee 按当日已收录的新闻与报价自动聚合，价格取区间中值，仅供参考，不构成交易建议。',
   ].join('\n');
 
+  const headline = items[0]?.title ?? null;
   const summary = truncateText(
-    `收录 ${items.length} 条新闻、${prices.length} 条报价（${contentDate}）。`,
+    headline
+      ? `${items.length} 条新闻：${headline}（${contentDate}）`
+      : `收录 ${items.length} 条新闻、${prices.length} 条报价（${contentDate}）。`,
     160,
   );
 
   return {
     kind: 'news_digest',
-    title: `${category.nameCn}日报 · ${contentDate}`,
+    title: headline
+      ? `${category.nameCn}日报 · ${contentDate}｜${truncateText(headline, 30)}`
+      : `${category.nameCn}日报 · ${contentDate}`,
     summary,
     body,
     meta: {
