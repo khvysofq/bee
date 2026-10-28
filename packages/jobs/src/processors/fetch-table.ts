@@ -154,7 +154,9 @@ function toIngestRow(sourceCode: string, row: FengjCopperRow): IngestQuoteRow {
     price_low: row.priceLow,
     price_high: row.priceHigh,
     quote_date: row.quoteDate,
-    observed_at: row.observedAt,
+    // 观测日就是报价日：adapter 只在页面给了独立观测时间时才填 observedAt，
+    // 漏了这一步会把整批价格落成 observed_at=null，时间线上就查不到了。
+    observed_at: row.observedAt ?? row.quoteDate,
     change_text: row.changeText,
   };
 }

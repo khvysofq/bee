@@ -43,6 +43,7 @@ export type ValidationCode =
   | 'unknown_unit'
   | 'value_out_of_range'
   | 'invalid_date'
+  | 'missing_observed_at'
   | 'jump_suspicious';
 
 export interface ValidationOutcome {
@@ -122,6 +123,11 @@ export function validateQuoteRow(input: unknown, options: ValidateOptions): Vali
   }
   if (row.quote_date < MIN_QUOTE_DATE) {
     return reject(row, true, 'invalid_date', `invalid_date: ${row.quote_date} 早于 ${MIN_QUOTE_DATE}`);
+  }
+  // 观测日为空 = 这条价格没有时间坐标，落库后既画不进曲线也做不了同比。
+  // 2026-10-27 就踩过一次：adapter 有 quote_date，payload 的 observed_at 却是 null。
+  if (!row.observed_at) {
+    return reject(row, true, 'missing_observed_at', `missing_observed_at: quote_date=${row.quote_date} 但 observed_at 为空`);
   }
 
   const previous = options.previousMidByKey?.[row.jump_key];

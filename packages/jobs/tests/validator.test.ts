@@ -25,7 +25,7 @@ function row(overrides: Partial<IngestQuoteRow> = {}): IngestQuoteRow {
     price_low: 62000,
     price_high: 62000,
     quote_date: '2026-10-26',
-    observed_at: null,
+    observed_at: '2026-10-26',
     change_text: '+200',
     ...overrides,
   };
@@ -39,6 +39,12 @@ describe('jobs validator（纯函数）', () => {
     expect(outcome.code).toBeNull();
     expect(midOf(outcome.row!)).toBe(62000);
     expect(VALIDATOR_VERSION).toBe('jobs-validator@1.0.0');
+  });
+
+  it('缺少 observed_at → missing_observed_at（不能落成没有时间坐标的价格）', () => {
+    const outcome = validateQuoteRow(row({ observed_at: null }), { today: TODAY });
+    expect(outcome.status).toBe('reject');
+    expect(outcome.code).toBe('missing_observed_at');
   });
 
   it('单位未知 → unknown_unit', () => {
