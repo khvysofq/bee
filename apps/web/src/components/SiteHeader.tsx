@@ -33,7 +33,10 @@ export function SiteHeader(props: { searchItems: SearchItem[] }) {
           <nav className="site-nav" aria-label="三大核心功能">
             {NAV_ITEMS.map((item) => {
               const active = item.exact
-                ? pathname === item.href || pathname.startsWith('/m/')
+                ? pathname === item.href ||
+                  pathname.startsWith('/m/') ||
+                  pathname.startsWith('/c/') ||
+                  pathname.startsWith('/content/')
                 : pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (
                 <Link

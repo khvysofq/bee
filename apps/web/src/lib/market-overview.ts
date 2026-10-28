@@ -429,10 +429,10 @@ export async function loadSearchIndex(database: BeeDb = defaultDb): Promise<Sear
 
   return [
     ...categories.map((category) => ({
-      href: `/?category=${encodeURIComponent(category.code)}`,
+      href: `/c/${category.code}`,
       label: category.name,
-      meta: '品类筛选',
-      keywords: category.name,
+      meta: '品类',
+      keywords: `${category.name} ${category.code}`,
     })),
     ...priceItems,
   ];
