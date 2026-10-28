@@ -1,3 +1,4 @@
+import '@/app/opportunities.css';
 import { SiteHeader } from '@/components/SiteHeader';
 import { Ticker, type TickerEntry } from '@/components/Ticker';
 import { loadLandingData } from '@/lib/landing-data';

@@ -9,13 +9,13 @@ import { Wordmark } from './Brand';
 import type { SearchItem } from '@/lib/market-types';
 
 /**
- * 全站头部（行情台 v3）：行情 / 推演 / 问答 + 全局品类搜索。
+ * 全站头部（行情台 v3）：行情 / 商机 / 问答 + 全局品类搜索。
  * 右侧问答抽屉全站可开；内部运维页走 /internal/*，不套用此壳。
  */
 
 const NAV_ITEMS = [
   { href: '/', label: '行情', exact: true },
-  { href: '/outlook', label: '推演' },
+  { href: '/opportunities', label: '商机' },
   { href: '/qa', label: '问答' },
 ];
 
@@ -37,7 +37,9 @@ export function SiteHeader(props: { searchItems: SearchItem[] }) {
                   pathname.startsWith('/m/') ||
                   pathname.startsWith('/c/') ||
                   pathname.startsWith('/content/')
-                : pathname === item.href || pathname.startsWith(`${item.href}/`);
+                : pathname === item.href ||
+                  pathname.startsWith(`${item.href}/`) ||
+                  (item.href === '/opportunities' && pathname.startsWith('/companies/'));
               return (
                 <Link
                   key={item.href}

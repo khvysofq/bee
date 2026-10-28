@@ -1,4 +1,4 @@
-import { inArray, sql } from 'drizzle-orm';
+import { desc, eq, inArray, sql } from 'drizzle-orm';
 import { v4, type BeeDb } from '@bee/db';
 import { numericToNumber } from '@bee/core';
 import { db as defaultDb } from '../db';
@@ -427,6 +427,52 @@ export async function loadSearchIndex(database: BeeDb = defaultDb): Promise<Sear
     };
   });
 
+  const opportunityItems: SearchItem[] = (
+    await database
+      .select({
+        id: v4.opportunity.id,
+        title: v4.opportunity.title,
+        kind: v4.opportunity.kind,
+        categoryName: v4.category.nameCn,
+        regionName: v4.region.name,
+        companyName: v4.company.name,
+      })
+      .from(v4.opportunity)
+      .innerJoin(v4.company, eq(v4.opportunity.companyId, v4.company.id))
+      .innerJoin(v4.category, eq(v4.opportunity.categoryId, v4.category.id))
+      .innerJoin(v4.region, eq(v4.opportunity.regionId, v4.region.id))
+      .where(eq(v4.opportunity.status, 'open'))
+      .orderBy(desc(v4.opportunity.publishedAt))
+      .limit(40)
+  ).map((row) => ({
+    href: `/opportunities/${row.id}`,
+    label: row.title,
+    meta: `商机 · ${row.categoryName} · ${row.regionName}`,
+    keywords: `${row.title} ${row.companyName} ${row.categoryName} ${row.regionName} ${row.kind}`,
+  }));
+
+  const companyItems: SearchItem[] = (
+    await database
+      .select({
+        id: v4.company.id,
+        name: v4.company.name,
+        type: v4.company.type,
+        categoryName: v4.category.nameCn,
+        regionName: v4.region.name,
+      })
+      .from(v4.company)
+      .innerJoin(v4.category, eq(v4.company.categoryId, v4.category.id))
+      .innerJoin(v4.region, eq(v4.company.regionId, v4.region.id))
+      .where(eq(v4.company.status, 'active'))
+      .orderBy(v4.company.name)
+      .limit(40)
+  ).map((row) => ({
+    href: `/companies/${row.id}`,
+    label: row.name,
+    meta: `企业 · ${row.categoryName} · ${row.regionName}`,
+    keywords: `${row.name} ${row.categoryName} ${row.regionName} ${row.type}`,
+  }));
+
   return [
     ...categories.map((category) => ({
       href: `/c/${category.code}`,
@@ -435,6 +481,8 @@ export async function loadSearchIndex(database: BeeDb = defaultDb): Promise<Sear
       keywords: `${category.name} ${category.code}`,
     })),
     ...priceItems,
+    ...opportunityItems,
+    ...companyItems,
   ];
 }
 
