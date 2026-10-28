@@ -13,6 +13,7 @@
     "migrate:v4": "tsx scripts/migrate-v4.ts",
     "seed": "tsx scripts/seed.ts",
     "seed:v4": "tsx scripts/seed-v4.ts",
+    "seed:demo-history": "tsx scripts/seed-demo-history.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
