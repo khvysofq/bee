@@ -16,6 +16,7 @@
     "jobs:scheduler": "tsx src/run-scheduler.ts",
     "jobs:worker": "tsx src/run-worker.ts",
     "jobs:seed": "tsx src/seed-demo.ts",
+    "seed:content-history": "tsx src/seed-content-history.ts",
     "run:price": "tsx src/run-price-job.ts",
     "run:content": "tsx src/run-content-job.ts"
   },
