@@ -1,0 +1,271 @@
+/**
+ * 内部管理页（品类 / 来源 / 内容审核）的最小样式。
+ * 仅在 /internal 布局引入，不触碰用户站视觉。
+ */
+
+.admin-section {
+  margin-top: var(--space-6);
+}
+
+.admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.admin-toolbar button,
+.admin-form-actions button,
+.admin-actions button {
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 4px 10px;
+  border: var(--hairline) solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.admin-toolbar button:hover,
+.admin-form-actions button:hover,
+.admin-actions button:hover {
+  border-color: var(--color-ink);
+}
+
+.admin-toolbar button:disabled,
+.admin-form-actions button:disabled,
+.admin-actions button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.admin-button-quiet {
+  background: transparent !important;
+}
+
+.admin-form {
+  padding: var(--space-4);
+  border: var(--hairline) solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.admin-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+
+.admin-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.admin-form-grid input,
+.admin-form-grid select,
+.admin-form-grid textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 4px 8px;
+  border: var(--hairline) solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-page);
+  color: var(--color-ink);
+}
+
+.admin-form-grid input:disabled {
+  background: var(--color-page-deep);
+  color: var(--color-muted);
+}
+
+.admin-form-wide {
+  grid-column: 1 / -1;
+}
+
+.admin-form-grid label.admin-check {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+}
+
+.admin-form-grid label.admin-check input {
+  width: auto;
+}
+
+.admin-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.admin-edit-row > td {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.admin-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: var(--hairline) solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.admin-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.admin-table th,
+.admin-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--hairline) solid var(--color-line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-table th {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  color: var(--color-muted);
+  white-space: nowrap;
+  background: var(--color-page-deep);
+}
+
+.admin-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.admin-table code {
+  font-size: var(--text-xs);
+}
+
+.admin-cell-sub {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.admin-nowrap {
+  white-space: nowrap;
+}
+
+.admin-title-cell {
+  max-width: 32ch;
+}
+
+.admin-key {
+  display: inline-block;
+  max-width: 30ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.admin-label-internal {
+  color: var(--color-warn);
+}
+
+.admin-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border: var(--hairline) solid var(--color-line);
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.admin-badge-active {
+  color: var(--color-down);
+  border-color: var(--color-down);
+}
+
+.admin-badge-draft {
+  color: var(--color-warn);
+  border-color: var(--color-warn-line);
+}
+
+.admin-badge-archived {
+  color: var(--color-muted);
+}
+
+.admin-badge-kind {
+  color: var(--color-ink);
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.admin-error {
+  flex-basis: 100%;
+  max-width: 34ch;
+  font-size: var(--text-xs);
+  color: var(--color-error);
+  overflow-wrap: anywhere;
+}
+
+.admin-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.admin-filters label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.admin-filters select {
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 2px 6px;
+  border: var(--hairline) solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+/* 导航从 4 项增到 6 项后允许换行，窄屏不撑破页面。 */
+.internal-bar .internal-nav {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+@media (max-width: 640px) {
+  .admin-form {
+    padding: var(--space-3);
+  }
+
+  .admin-table th,
+  .admin-table td {
+    padding: var(--space-2);
+  }
+}
