@@ -30,12 +30,12 @@ export function requireDatabaseUrl(): string {
 }
 
 /**
- * v4 脚本连接串：优先 DATABASE_URL_V4；否则取 DATABASE_URL 并把库名换成 bee_v4。
- * 这样 v4 的迁移/种子永远不会误连线上 `bee` 库。
+ * v4 连接串：优先 DATABASE_URL_V4；否则直接用 DATABASE_URL。
+ *
+ * v4 已于 2026-10-28 上线：验证过的 `bee_v4` 改名为 `bee`，旧库已备份删除，
+ * 因此 v4 脚本与 web 现在指向同一个库；`bee_v4` 只作为历史环境变量保留。
  */
 export function resolveV4DatabaseUrl(): string {
   if (process.env.DATABASE_URL_V4) return process.env.DATABASE_URL_V4;
-  const url = new URL(requireDatabaseUrl());
-  url.pathname = '/bee_v4';
-  return url.toString();
+  return requireDatabaseUrl();
 }

@@ -375,23 +375,33 @@ raw/{source_code}/{yyyy}/{mm}/{dd}/{sha}.html.gz
 ### 种子
 
 - 品类（3）：`1110105 废钢铁`、`1110201 废铜`、`1110202 废铝`，`status=active`，`sort_order=1/2/3`。
-- 地域（33）：`WORLD`（global）、`CN`（country，parent=WORLD）、31 个省级行政区（province，parent=CN，GB/T 2260 两位码：11 北京、12 天津、13 河北、14 山西、15 内蒙古、21 辽宁、22 吉林、23 黑龙江、31 上海、32 江苏、33 浙江、34 安徽、35 福建、36 江西、37 山东、41 河南、42 湖北、43 湖南、44 广东、45 广西、46 海南、50 重庆、51 四川、52 贵州、53 云南、54 西藏、61 陕西、62 甘肃、63 青海、64 宁夏、65 新疆）。
+- 地域（36）：`WORLD`（global）、`CN`（country，parent=WORLD）、31 个省级行政区（province，parent=CN，GB/T 2260 两位码：11 北京、12 天津、13 河北、14 山西、15 内蒙古、21 辽宁、22 吉林、23 黑龙江、31 上海、32 江苏、33 浙江、34 安徽、35 福建、36 江西、37 山东、41 河南、42 湖北、43 湖南、44 广东、45 广西、46 海南、50 重庆、51 四川、52 贵州、53 云南、54 西藏、61 陕西、62 甘肃、63 青海、64 宁夏、65 新疆），以及 3 个城市（city，parent 指向省）：`4401` 广州、`4406` 佛山、`3205` 苏州。
 - 规格（12）：每品类 4 个。
   - 废钢铁：`heavy` 重废、`medium` 中废、`light` 轻薄料、`rebar-cut` 钢筋切粒。
-  - 废铜：`bright` 光亮铜、`motor-wire` 电机线、`yellow-brass` 黄杂铜、`brass-shred` 破碎黄铜。
+  - 废铜：`bright` 光亮铜（别名 `光亮铜线`）、`motor-wire` 电机线、`yellow-brass` 黄杂铜、`brass-shred` 破碎黄铜。
   - 废铝：`raw-alum` 生铝、`cooked-alum` 熟铝、`alum-wire` 铝线、`cans` 易拉罐。
-- 不种子：`source`、`job`、`job_run`、`price_daily`、`content`、`admin_audit`。
+- 来源（2）：`demo-fixture` 离线样例（`fixture://fengj-copper.html`，licensed）、`fengj` 网优废钢网（`https://zs.fengj.com/ft/`，internal_only）。
+- 任务（2）：`demo.scrap-copper.fixture`（fixture，手工可跑，schedule 停用）、`fengj.scrap-copper.daily`（真实站点，`enabled=false`，人工确认后再开）。
+- 不种子：`job_run`、`price_daily`、`content`、`admin_audit`。
 
-种子脚本幂等：重复执行不新增行，允许修正名称/排序等配置字段。
+种子脚本幂等：重复执行不新增行，允许修正名称/排序/别名/任务配置。
 
 ### 本步验收
 
 ```sql
 \dt                                                   -- 9 张表
 select code, name_cn from category order by code;      -- 恰好 3 行
-select count(*) from region;                           -- 33
+select count(*) from region;                           -- 36
 select count(*) from spec;                             -- 12
-select count(*) from price_daily;                      -- 0
+select count(*) from source;                           -- 2
+select count(*) from job;                              -- 2
+select count(*) from price_daily;                      -- 采集后 4（fixture 演示）
+```
+
+价格采集 CLI（第 3 步）：
+
+```bash
+pnpm --filter @bee/jobs run:price demo.scrap-copper.fixture
 ```
 
 并且：
