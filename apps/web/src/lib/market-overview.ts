@@ -1,22 +1,9 @@
-import { sql } from 'drizzle-orm';
-import { dbSchema, type BeeDb } from '@bee/db';
+import { inArray, sql } from 'drizzle-orm';
+import { v4, type BeeDb } from '@bee/db';
 import { numericToNumber } from '@bee/core';
 import { db as defaultDb } from '../db';
-import { loadBriefing } from './briefing-data';
 import { STATS_SOURCE_CODE } from './compliance';
-
-/**
- * 行情总览数据层（行情台 v3）。
- *
- * 只读 market_series / series_point 与 daily_quote，不接受任何手写行情数字。
- * 两条数据链在这里并列展示但永不混合计算：
- *  - market_series + series_point = 交易所结算价 / 国际指数（预期价或基准，非现货）；
- *  - daily_quote = 已发布现货/统计报价（当前为国家统计局旬价全国参考锚点）。
- *
- * 缺口表达：区域层没有数据时返回空数组 + 区域骨架，页面显示「待接入」，
- * 不用其他层级的数据顶替，也不补点、不插值。
- */
-
+import { quoteSlug, parseQuoteSlug } from './market-types';
 import type {
   MarketCategoryFacet,
   MarketChange,
@@ -29,6 +16,16 @@ import type {
   TrustMark,
 } from './market-types';
 import { SCOPE_LABEL } from './market-types';
+
+/**
+ * 行情总览数据层（v4）。
+ *
+ * 唯一数字来源是 price_daily：每个「品类 × 地域 × 规格 × 价类型」取最近一条已发布价格，
+ * 形成一行 MarketRow；spark 取该组合最近 30 个真实点（升序）。
+ *
+ * v4 不接期货/指数序列，series / points 计数恒为 0，也不伪造序列。
+ * 没有价格的组合不生成行；区域层没有数据时页面显示「待接入」。
+ */
 
 export type {
   MarketCategoryFacet,
@@ -45,22 +42,27 @@ export { SCOPE_LABEL };
 
 const DAY_MS = 86_400_000;
 
+const PRICE_TYPE_LABEL: Record<string, string> = {
+  market: '市场价',
+  purchase: '采购价',
+  sale: '销售价',
+  ex_works: '出厂价',
+  indicative: '指导价',
+};
+
 function pct(current: number, previous: number): number {
   if (previous === 0) return 0;
   return Math.round(((current - previous) / previous) * 10_000) / 100;
 }
 
 function daysBetween(a: string, b: string): number {
-  return Math.round((new Date(`${a}T00:00:00Z`).getTime() - new Date(`${b}T00:00:00Z`).getTime()) / DAY_MS);
+  return Math.round(
+    (new Date(`${a}T00:00:00Z`).getTime() - new Date(`${b}T00:00:00Z`).getTime()) / DAY_MS,
+  );
 }
 
 function addDays(date: string, days: number): string {
   return new Date(new Date(`${date}T00:00:00Z`).getTime() + days * DAY_MS).toISOString().slice(0, 10);
-}
-
-function isoDate(value: unknown): string | null {
-  if (typeof value !== 'string' || value.length === 0) return null;
-  return value.slice(0, 10);
 }
 
 function frequencyLabel(frequency: string): string {
@@ -70,25 +72,25 @@ function frequencyLabel(frequency: string): string {
   return '不定期';
 }
 
-function marketKindLabel(kind: string): string {
-  if (kind === 'futures') return '期货';
-  if (kind === 'index') return '指数';
-  if (kind === 'inventory') return '库存';
-  if (kind === 'macro') return '宏观';
-  return '序列';
+function scopeOfRegion(level: string): MarketScope {
+  if (level === 'global') return 'international';
+  if (level === 'country') return 'domestic';
+  return 'regional';
 }
 
-function trustForSeries(input: {
-  frequency: string;
-  lastDate: string | null;
-  globalLatest: string | null;
-}): { trust: TrustMark; label: string } {
-  if (!input.lastDate) return { trust: 'gap', label: '缺口' };
-  if (!input.globalLatest) return { trust: 'normal', label: '正常' };
-  const age = daysBetween(input.globalLatest, input.lastDate);
-  const limit = input.frequency === 'monthly' ? 62 : 10;
-  if (age > limit) return { trust: 'review', label: '待复核' };
-  return { trust: 'normal', label: '正常' };
+/** 从真实点位间隔推断频次；不足两点时按不定期处理（不下结论）。 */
+function inferFrequency(pointsAsc: MarketSparkPoint[]): MarketRow['frequency'] {
+  if (pointsAsc.length < 2) return 'irregular';
+  const gaps: number[] = [];
+  for (let i = 1; i < pointsAsc.length; i += 1) {
+    gaps.push(daysBetween(pointsAsc[i]!.date, pointsAsc[i - 1]!.date));
+  }
+  gaps.sort((a, b) => a - b);
+  const median = gaps[Math.floor(gaps.length / 2)] ?? Infinity;
+  if (median <= 2) return 'daily';
+  if (median <= 9) return 'weekly';
+  if (median <= 45) return 'monthly';
+  return 'irregular';
 }
 
 /** 从最近点序列（降序）计算日/周变化；不足或频次不适用时返回 null（缺失不当作持平）。 */
@@ -112,6 +114,334 @@ function changesFromPoints(
   return { day, week };
 }
 
+function trustForQuote(input: {
+  frequency: string;
+  lastDate: string;
+  globalLatest: string | null;
+}): { trust: TrustMark; label: string } {
+  if (!input.globalLatest) return { trust: 'normal', label: '正常' };
+  const age = daysBetween(input.globalLatest, input.lastDate);
+  const limit = input.frequency === 'monthly' ? 62 : input.frequency === 'weekly' ? 21 : 10;
+  if (age > limit) return { trust: 'review', label: '待复核' };
+  return { trust: 'normal', label: '正常' };
+}
+
+interface PriceSqlRow {
+  id: string;
+  category_code: string;
+  category_name: string;
+  category_sort: number;
+  spec_code: string | null;
+  spec_name: string | null;
+  region_code: string;
+  region_name: string;
+  region_level: string;
+  price_date: string;
+  price_type: string;
+  value_low: string | null;
+  value_high: string | null;
+  value_mid: string | null;
+  unit: string;
+  currency: string;
+  note: string | null;
+  raw_url: string | null;
+  captured_at: Date | string | null;
+  source_code: string | null;
+  source_name: string | null;
+  rn: number;
+  total: number;
+}
+
+interface PriceGroup {
+  meta: PriceSqlRow;
+  points: MarketSparkPoint[];
+  total: number;
+}
+
+function groupKey(row: PriceSqlRow): string {
+  return [row.category_code, row.region_code, row.spec_code ?? 'all', row.price_type].join('|');
+}
+
+/**
+ * 每条价格记录只取最近 30 个点；rn/total 用窗口函数在库内算，避免把全表拉进内存。
+ * 已撤回/草稿不进总览。
+ */
+async function loadPriceGroups(database: BeeDb): Promise<Map<string, PriceGroup>> {
+  const result = await database.execute(sql`
+    with ranked as (
+      select pd.id,
+             c.code as category_code,
+             c.name_cn as category_name,
+             c.sort_order as category_sort,
+             s.code as spec_code,
+             s.name as spec_name,
+             r.code as region_code,
+             r.name as region_name,
+             r.level as region_level,
+             pd.price_date::text as price_date,
+             pd.price_type,
+             pd.value_low::text as value_low,
+             pd.value_high::text as value_high,
+             pd.value_mid::text as value_mid,
+             pd.unit,
+             pd.currency,
+             pd.note,
+             pd.raw_url,
+             pd.captured_at,
+             src.code as source_code,
+             src.name as source_name,
+             row_number() over (
+               partition by pd.category_id, pd.spec_id, pd.region_id, pd.price_type
+               order by pd.price_date desc
+             ) as rn,
+             count(*) over (
+               partition by pd.category_id, pd.spec_id, pd.region_id, pd.price_type
+             ) as total
+        from price_daily pd
+        join category c on c.id = pd.category_id
+        join region r on r.id = pd.region_id
+        left join spec s on s.id = pd.spec_id
+        left join source src on src.id = pd.source_id
+       where pd.status = 'published'
+    )
+    select * from ranked
+     where rn <= 30
+     order by category_sort, category_code, region_code, spec_code nulls first, price_type, price_date asc
+  `);
+
+  const groups = new Map<string, PriceGroup>();
+  for (const raw of result.rows as unknown as PriceSqlRow[]) {
+    const value = numericToNumber(raw.value_mid);
+    if (value === null) continue;
+    const key = groupKey(raw);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.points.push({ date: raw.price_date.slice(0, 10), value });
+    } else {
+      groups.set(key, {
+        meta: raw,
+        points: [{ date: raw.price_date.slice(0, 10), value }],
+        total: Number(raw.total),
+      });
+    }
+  }
+  return groups;
+}
+
+function toMarketRow(group: PriceGroup, globalLatest: string | null): MarketRow {
+  const { meta, points, total } = group;
+  const pointsAsc = [...points].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const pointsDesc = [...pointsAsc].reverse();
+  const latest = pointsAsc[pointsAsc.length - 1]!;
+  const frequency = inferFrequency(pointsAsc);
+  const changes = changesFromPoints(pointsDesc, frequency);
+  const trust = trustForQuote({ frequency, lastDate: latest.date, globalLatest });
+  const specCode = meta.spec_code;
+  const specName = meta.spec_name ?? '品类级';
+  const slug = quoteSlug({
+    categoryCode: meta.category_code,
+    regionCode: meta.region_code,
+    specCode,
+    priceType: meta.price_type,
+  });
+
+  return {
+    key: `price-${meta.category_code}-${meta.region_code}-${specCode ?? 'all'}-${meta.price_type}`,
+    slug,
+    kind: 'quote',
+    scope: scopeOfRegion(meta.region_level),
+    categoryCode: meta.category_code,
+    categoryName: meta.category_name,
+    instrument: meta.category_name,
+    spec: specName,
+    market: meta.source_name ? `${meta.region_name} · ${meta.source_name}` : meta.region_name,
+    marketKind: '发布价格',
+    unit: meta.unit,
+    currency: meta.currency,
+    frequency,
+    frequencyLabel: frequencyLabel(frequency),
+    latestValue: latest.value,
+    latestDate: latest.date,
+    dayChange: changes.day,
+    weekChange: changes.week,
+    pointCount: total,
+    updatedAt: latest.date,
+    trust: trust.trust,
+    trustLabel: trust.label,
+    spark: pointsAsc.slice(-30),
+    note: meta.note,
+    quoteId: meta.id,
+  };
+}
+
+function sortRows(rows: MarketRow[]): MarketRow[] {
+  return rows.sort((a, b) => {
+    if (a.scope !== b.scope) return a.scope === 'international' ? -1 : 1;
+    const catA = a.categoryName ?? a.instrument;
+    const catB = b.categoryName ?? b.instrument;
+    return (
+      catA.localeCompare(catB, 'zh-CN') ||
+      a.market.localeCompare(b.market, 'zh-CN') ||
+      a.spec.localeCompare(b.spec, 'zh-CN') ||
+      a.latestDate!.localeCompare(b.latestDate!)
+    );
+  });
+}
+
+async function loadRegionFacets(database: BeeDb, rows: MarketRow[]): Promise<MarketRegionFacet[]> {
+  const regionRows = await database
+    .select({ code: v4.region.code, name: v4.region.name })
+    .from(v4.region)
+    .where(inArray(v4.region.level, ['province', 'city', 'market']))
+    .orderBy(v4.region.sortOrder, v4.region.name);
+
+  return regionRows.map((region) => ({
+    code: region.code,
+    name: region.name,
+    rowCount: rows.filter(
+      (row) => row.scope === 'regional' && parseQuoteSlug(row.slug)?.regionCode === region.code,
+    ).length,
+  }));
+}
+
+export async function loadMarketOverview(database: BeeDb = defaultDb): Promise<MarketOverview> {
+  const generatedAt = new Date().toISOString();
+
+  const [categoryRows, groups] = await Promise.all([
+    database
+      .select({ code: v4.category.code, name: v4.category.nameCn, sortOrder: v4.category.sortOrder })
+      .from(v4.category)
+      .orderBy(v4.category.sortOrder, v4.category.code),
+    loadPriceGroups(database),
+  ]);
+
+  const grouped = [...groups.values()];
+  let globalLatest: string | null = null;
+  for (const group of grouped) {
+    for (const point of group.points) {
+      if (!globalLatest || point.date > globalLatest) globalLatest = point.date;
+    }
+  }
+
+  const rows = sortRows(grouped.map((group) => toMarketRow(group, globalLatest)));
+
+  const categories: MarketCategoryFacet[] = categoryRows.map((category) => ({
+    code: category.code,
+    name: category.name,
+    count: rows.filter((row) => row.categoryCode === category.code).length,
+  }));
+
+  const regions = await loadRegionFacets(database, rows);
+
+  let dataCutoffAt: string | null = null;
+  let statsSourceUrl: string | null = null;
+  let statsSourceAt: string | null = null;
+  let hasFixtureSource = false;
+  for (const group of grouped) {
+    const captured = group.meta.captured_at;
+    const iso = captured instanceof Date ? captured.toISOString() : captured;
+    if (iso && (!dataCutoffAt || iso > dataCutoffAt)) dataCutoffAt = iso;
+    if (group.meta.source_code === STATS_SOURCE_CODE && group.meta.raw_url) {
+      if (!statsSourceAt || (iso !== null && iso > statsSourceAt)) {
+        statsSourceAt = iso;
+        statsSourceUrl = group.meta.raw_url;
+      }
+    }
+    if (
+      group.meta.source_code?.startsWith('fixture') ||
+      group.meta.source_code === 'open-cc0-sample'
+    ) {
+      hasFixtureSource = true;
+    }
+  }
+
+  return {
+    generatedAt,
+    globalLatest,
+    rows,
+    categories,
+    regions,
+    counts: {
+      series: 0,
+      points: 0,
+      quotes: rows.length,
+      international: rows.filter((row) => row.scope === 'international').length,
+      domestic: rows.filter((row) => row.scope === 'domestic').length,
+      regional: rows.filter((row) => row.scope === 'regional').length,
+    },
+    dataCutoffAt,
+    hasStatsSource: statsSourceUrl !== null || grouped.some((group) => group.meta.source_code === STATS_SOURCE_CODE),
+    statsSourceUrl,
+    hasFixtureSource,
+  };
+}
+
+/** 轻量搜索索引：给全站头部搜索框做纯前端过滤用，不查询点位。 */
+export async function loadSearchIndex(database: BeeDb = defaultDb): Promise<SearchItem[]> {
+  const categories = await database
+    .select({ code: v4.category.code, name: v4.category.nameCn })
+    .from(v4.category)
+    .orderBy(v4.category.sortOrder, v4.category.code);
+
+  const priceResult = await database.execute(sql`
+    select distinct on (pd.category_id, pd.spec_id, pd.region_id, pd.price_type)
+           c.code as category_code,
+           c.name_cn as category_name,
+           s.code as spec_code,
+           s.name as spec_name,
+           r.code as region_code,
+           r.name as region_name,
+           pd.price_date::text as price_date,
+           pd.price_type
+      from price_daily pd
+      join category c on c.id = pd.category_id
+      join region r on r.id = pd.region_id
+      left join spec s on s.id = pd.spec_id
+     where pd.status = 'published'
+     order by pd.category_id, pd.spec_id, pd.region_id, pd.price_type, pd.price_date desc
+  `);
+
+  const priceItems: SearchItem[] = (
+    priceResult.rows as unknown as Array<{
+      category_code: string;
+      category_name: string;
+      spec_code: string | null;
+      spec_name: string | null;
+      region_code: string;
+      region_name: string;
+      price_date: string;
+      price_type: string;
+    }>
+  ).map((row) => {
+    const slug = quoteSlug({
+      categoryCode: row.category_code,
+      regionCode: row.region_code,
+      specCode: row.spec_code,
+      priceType: row.price_type,
+    });
+    return {
+      href: `/m/${slug}`,
+      label: `${row.category_name} · ${row.spec_name ?? '品类级'} · ${row.region_name}`,
+      meta: `${row.price_date} · ${PRICE_TYPE_LABEL[row.price_type] ?? row.price_type}`,
+      keywords: `${row.category_name} ${row.spec_name ?? ''} ${row.region_name} ${row.price_date}`,
+    };
+  });
+
+  return [
+    ...categories.map((category) => ({
+      href: `/?category=${encodeURIComponent(category.code)}`,
+      label: category.name,
+      meta: '品类筛选',
+      keywords: category.name,
+    })),
+    ...priceItems,
+  ];
+}
+
+/* ------------------------------------------------------------------ */
+/* 旧期货合约选择器（v4 不接期货；保留纯函数以兼容既有单测，不查库）      */
+/* ------------------------------------------------------------------ */
+
 export interface SeriesSqlRow {
   id: string;
   code: string;
@@ -133,111 +463,12 @@ export interface SeriesSqlRow {
   obs_date: string | null;
   value: string | null;
   volume: string | null;
-  /** 展示层标记：该合约是否为所属品种的成交主力（只在总览里挑一个）。 */
   is_main?: boolean;
 }
 
-interface QuoteSqlRow {
-  category_code: string;
-  category_name: string;
-  quote: Awaited<ReturnType<typeof loadBriefing>>['categories'][number]['quotes'][number];
-}
-
-function quoteScope(row: QuoteSqlRow): MarketScope {
-  // 统计局全国参考锚点属于「国内全国」层；其他已发布现货报价按地域层级归入区域层。
-  if (row.quote.regionName.includes('全国参考')) return 'domestic';
-  return 'regional';
-}
-
-function quoteMarket(row: QuoteSqlRow): { market: string; kind: string } {
-  const hasStats = row.quote.sources.some((source) => source.code === 'stats-cn');
-  if (hasStats) return { market: '国家统计局 · 旬价', kind: '统计报价' };
-  const source = row.quote.sources[0];
-  return { market: source ? `${source.name} · 现货` : '已发布报价', kind: '现货报价' };
-}
-
-function toQuoteRow(row: QuoteSqlRow): MarketRow {
-  const { quote } = row;
-  const { market, kind } = quoteMarket(row);
-  return {
-    key: `quote-${quote.id}`,
-    slug: `q-${quote.id}`,
-    kind: 'quote',
-    scope: quoteScope(row),
-    categoryCode: row.category_code,
-    categoryName: row.category_name,
-    instrument: row.category_name,
-    spec: quote.specName,
-    market,
-    marketKind: kind,
-    unit: '元/吨',
-    currency: 'CNY',
-    frequency: 'irregular',
-    frequencyLabel: '旬价',
-    latestValue: quote.valueMid,
-    latestDate: quote.quoteDate,
-    dayChange: quote.previousTradingDay
-      ? {
-          date: quote.previousTradingDay.quoteDate,
-          previousValue: quote.previousTradingDay.previousValue,
-          pct: quote.previousTradingDay.pct,
-        }
-      : null,
-    weekChange: quote.weekAgo
-      ? {
-          date: quote.weekAgo.quoteDate,
-          previousValue: quote.weekAgo.previousValue,
-          pct: quote.weekAgo.pct,
-        }
-      : null,
-    pointCount: 1,
-    updatedAt: quote.fetchedTo?.slice(0, 10) ?? quote.quoteDate,
-    trust: 'reference',
-    trustLabel: '参考锚点',
-    spark: [{ date: quote.quoteDate, value: quote.valueMid }],
-    note: quote.coverageNote,
-    quoteId: quote.id,
-  };
-}
-
-/** 全库序列/点位计数（页头读数，来自库）。 */
-async function loadTotals(database: BeeDb): Promise<{ series: number; points: number }> {
-  const result = await database.execute(sql`
-    select (select count(*)::int from market_series) as series,
-           (select count(*)::int from series_point) as points
-  `);
-  const row = result.rows[0] as { series: number; points: number } | undefined;
-  return { series: row?.series ?? 0, points: row?.points ?? 0 };
-}
-
 /**
- * 总览查询：只取「可对外展示」且当前仍有数据的国内品类序列 + 国际基准，
- * 已过期合约不混进今日列表；它们仍在库里，单品页与溯源不受影响。
- */
-/** 合约代码末尾的 YYMM，用来在同成交量时按「先到期」排序。 */
-function expiryOf(code: string): number {
-  const match = code.match(/(\d{3,4})$/);
-  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
-}
-
-/** 交易所口径：ine.* 属于上期能源，shfe.* 属于上期所；bc 两边都登记过，按代码前缀认。 */
-function canonicalVenue(code: string, venue: string | null): string {
-  const prefix = code.split('.')[0]?.toUpperCase();
-  return prefix === 'SHFE' || prefix === 'INE' || prefix === 'CZCE' || prefix === 'DCE' || prefix === 'GFEX'
-    ? prefix
-    : (venue ?? '');
-}
-
-/**
- * 总览只展示「一个品种一个合约」：同一品种（category + instrument）里挑成交量最大的主力合约。
- *
- * 为什么要在展示层挑：交易所目录里有几十个交割月（cu2610…cu2709），
- * 逐月铺开等于把合约表当行情表，用户要的是一条「今天的铜价」。
- * 库里数据不删、不聚合，单品页与溯源仍能查到每个合约。
- *
- * 顺带处理两个已知的数据毛刺：
- *  1. bc（国际铜）同时被登记成 shfe.bc* 与 ine.bc*，按代码前缀认归属，避免同一合约出现两次；
- *  2. 成交清淡的品种（如国际铜，约为沪铜的十分之一）不进总览，阈值 20%，避免并列一堆没人交易的合约。
+ * 从一个品种的多个合约里挑主力（成交量最大）。v4 不接期货，总览不再调用；
+ * 保留导出是因为既有契约单测把它当作纯函数锁定。
  */
 export function selectRepresentativeContracts<T extends { meta: SeriesSqlRow; points: MarketSparkPoint[] }>(
   entries: T[],
@@ -263,25 +494,17 @@ export function selectRepresentativeContracts<T extends { meta: SeriesSqlRow; po
     return parsed !== null && Number.isFinite(parsed) ? parsed : -1;
   };
 
-  // 每个品种先挑一个主力合约。
   const chosen: T[] = [];
   for (const list of futures.values()) {
     const sorted = [...list].sort((a, b) => {
       const diff = volumeOf(b) - volumeOf(a);
       if (diff !== 0) return diff;
-      // 同一合约被两个场所重复登记时，认代码前缀对应的那个场所。
-      const venueA = canonicalVenue(a.meta.code, a.meta.venue) === a.meta.venue ? 0 : 1;
-      const venueB = canonicalVenue(b.meta.code, b.meta.venue) === b.meta.venue ? 0 : 1;
-      if (venueA !== venueB) return venueA - venueB;
-      const expiry = expiryOf(a.meta.code) - expiryOf(b.meta.code);
-      if (expiry !== 0) return expiry;
       return a.meta.code.localeCompare(b.meta.code);
     });
     const best = sorted[0];
     if (best) chosen.push({ ...best, meta: { ...best.meta, is_main: true } });
   }
 
-  // 再按品类剔除成交明显偏薄的品种（< 该品类主力成交量的 20%）。
   const maxVolumeByCategory = new Map<string, number>();
   for (const entry of chosen) {
     const category = entry.meta.category_code ?? '';
@@ -292,272 +515,10 @@ export function selectRepresentativeContracts<T extends { meta: SeriesSqlRow; po
   }
   const kept = chosen.filter((entry) => {
     const volume = volumeOf(entry);
-    if (volume <= 0) return true; // 没有成交量字段的品种一律保留，不猜。
+    if (volume <= 0) return true;
     const max = maxVolumeByCategory.get(entry.meta.category_code ?? '') ?? 0;
     return max <= 0 || volume >= max * 0.2;
   });
 
   return [...rest, ...kept];
-}
-
-function pickRepresentativeContracts<T extends { meta: SeriesSqlRow; points: MarketSparkPoint[] }>(
-  grouped: Map<string, T>,
-): T[] {
-  return selectRepresentativeContracts([...grouped.values()]);
-}
-
-async function loadSeriesRows(database: BeeDb): Promise<{ rows: MarketRow[]; globalLatest: string | null }> {
-  const result = await database.execute(sql`
-    with latest as (
-      select max(obs_date) as max_date from series_point
-    ),
-    scoped as (
-      select s.id, s.code, s.name_cn, s.layer::text as layer, s.kind::text as kind,
-             s.frequency::text as frequency, s.venue, s.instrument_code, s.currency,
-             s.summary, s.status::text as status, s.category_id,
-             c.code as category_code, c.name_cn as category_name, c.sort_order as category_sort,
-             u.name_cn as unit_name,
-             stats.cnt::int as point_count, stats.last_date
-        from market_series s
-        left join category c on c.id = s.category_id
-        left join unit u on u.id = s.unit_id
-        join lateral (
-          select count(distinct obs_date)::int as cnt, max(p.obs_date) as last_date
-            from series_point p where p.series_id = s.id
-        ) stats on true
-        join latest on true
-       where s.display_allowed
-         and s.status = 'active'
-         and (
-           s.layer = 'international'
-           or (s.category_id is not null and stats.last_date >= latest.max_date - interval '30 days')
-         )
-    )
-    select scoped.*, p.obs_date::text as obs_date, p.value::text as value, p.volume::text as volume
-      from scoped
-      join lateral (
-        select obs_date, value, volume
-          from series_point
-         where series_id = scoped.id
-         order by obs_date desc, revision desc
-         limit 31
-      ) p on true
-     order by scoped.layer, scoped.category_sort nulls last, scoped.venue,
-              scoped.instrument_code, scoped.code, p.obs_date desc
-  `);
-
-  const grouped = new Map<string, { meta: SeriesSqlRow; points: MarketSparkPoint[] }>();
-  for (const raw of result.rows as unknown as SeriesSqlRow[]) {
-    const lastDate = isoDate(raw.last_date);
-    const obsDate = isoDate(raw.obs_date);
-    const value = numericToNumber(raw.value);
-    if (!obsDate || value === null) continue;
-    // 每个合约只认最新一天的成交量（查询已按 obs_date 降序，第一次即最新）。
-    const volume = numericToNumber(raw.volume);
-    const row = grouped.get(raw.id);
-    if (row) {
-      // 同一天可能有修正版本；查询已按 revision 降序，只保留第一条。
-      if (!row.points.some((point) => point.date === obsDate)) {
-        row.points.push({ date: obsDate, value });
-      }
-    } else {
-      grouped.set(raw.id, {
-        meta: { ...raw, last_date: lastDate, volume: volume === null ? null : String(volume) },
-        points: [{ date: obsDate, value }],
-      });
-    }
-  }
-
-  const groupedEntries = pickRepresentativeContracts(grouped);
-
-  let globalLatest: string | null = null;
-  for (const { meta } of groupedEntries) {
-    if (meta.last_date && (!globalLatest || meta.last_date > globalLatest)) globalLatest = meta.last_date;
-  }
-
-  const rows: MarketRow[] = [];
-  for (const { meta, points } of groupedEntries) {
-    const pointsDesc = [...points].sort((a, b) => (a.date < b.date ? 1 : -1));
-    const latest = pointsDesc[0] ?? null;
-    if (!latest || !meta.last_date) continue;
-    const changes = changesFromPoints(pointsDesc, meta.frequency);
-    const trust = trustForSeries({
-      frequency: meta.frequency,
-      lastDate: meta.last_date,
-      globalLatest: globalLatest,
-    });
-    const scope: MarketScope =
-      meta.layer === 'international' ? 'international' : meta.layer === 'regional' ? 'regional' : 'domestic';
-    const parsed = meta.name_cn.match(/^(.*?)\s+([A-Za-z]+\d+)$/);
-    const instrument = meta.category_name ?? parsed?.[1] ?? meta.name_cn;
-    const spec = meta.category_name ? meta.name_cn : meta.frequency === 'monthly' ? '月均指数' : meta.kind;
-    rows.push({
-      key: `series-${meta.id}`,
-      slug: `s-${meta.code}`,
-      kind: 'series',
-      scope,
-      categoryCode: meta.category_code,
-      categoryName: meta.category_name,
-      instrument,
-      spec,
-      // 总览里期货只展示一个主力合约，标签要写清楚，别让读者以为是「唯一报价」。
-      market: [meta.venue ?? '—', marketKindLabel(meta.kind), meta.is_main && meta.kind === 'futures' ? '主力' : '']
-        .filter(Boolean)
-        .join(' · '),
-      marketKind: marketKindLabel(meta.kind),
-      unit: meta.unit_name ?? (meta.currency === 'USD' ? '美元/吨' : '元/吨'),
-      currency: meta.currency,
-      frequency: meta.frequency as MarketRow['frequency'],
-      frequencyLabel: frequencyLabel(meta.frequency),
-      latestValue: latest.value,
-      latestDate: latest.date,
-      dayChange: changes.day,
-      weekChange: changes.week,
-      pointCount: meta.point_count,
-      updatedAt: latest.date,
-      trust: trust.trust,
-      trustLabel: trust.label,
-      spark: [...points].sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-30),
-      note: meta.summary,
-      seriesId: meta.id,
-    });
-  }
-
-  // 统一按「国际 / 国内」分开后由页面排序；这里保持库内稳定的品类→市场顺序。
-  rows.sort((a, b) => {
-    if (a.scope !== b.scope) return a.scope === 'international' ? -1 : 1;
-    const catA = a.categoryName ?? a.instrument;
-    const catB = b.categoryName ?? b.instrument;
-    return (
-      catA.localeCompare(catB, 'zh-CN') ||
-      a.market.localeCompare(b.market, 'zh-CN') ||
-      a.spec.localeCompare(b.spec, 'zh-CN')
-    );
-  });
-
-  return { rows, globalLatest };
-}
-
-async function loadRegionFacets(database: BeeDb, rows: MarketRow[]): Promise<MarketRegionFacet[]> {
-  const result = await database.execute(sql`
-    select code, name_cn from region
-     where level = 'macro_region' and code <> 'cn-reference'
-     order by name_cn
-  `);
-  return (result.rows as Array<{ code: string; name_cn: string }>).map((region) => ({
-    code: region.code,
-    name: region.name_cn,
-    rowCount: rows.filter((row) => row.scope === 'regional' && row.market.includes(region.name_cn)).length,
-  }));
-}
-
-export async function loadMarketOverview(database: BeeDb = defaultDb): Promise<MarketOverview> {
-  const generatedAt = new Date().toISOString();
-  const [seriesResult, briefing, totals] = await Promise.all([
-    loadSeriesRows(database),
-    loadBriefing(database),
-    loadTotals(database),
-  ]);
-
-  const quoteRows: MarketRow[] = briefing.categories.flatMap((category) =>
-    category.quotes.map((quote) =>
-      toQuoteRow({
-        category_code: category.code,
-        category_name: category.name,
-        quote,
-      }),
-    ),
-  );
-
-  const rows = [...seriesResult.rows, ...quoteRows];
-  const globalLatest =
-    seriesResult.globalLatest ??
-    briefing.latestQuoteDate ??
-    null;
-
-  const categories: MarketCategoryFacet[] = briefing.categories.map((category) => ({
-    code: category.code,
-    name: category.name,
-    count: rows.filter((row) => row.categoryCode === category.code).length,
-  }));
-
-  const regions = await loadRegionFacets(database, rows);
-  const statsSource = briefing.sources.find((source) => source.code === STATS_SOURCE_CODE);
-
-  return {
-    generatedAt,
-    globalLatest,
-    rows,
-    categories,
-    regions,
-    counts: {
-      series: totals.series,
-      points: totals.points,
-      quotes: quoteRows.length,
-      international: rows.filter((row) => row.scope === 'international').length,
-      domestic: rows.filter((row) => row.scope === 'domestic').length,
-      regional: rows.filter((row) => row.scope === 'regional').length,
-    },
-    dataCutoffAt: briefing.dataCutoffAt,
-    hasStatsSource: Boolean(statsSource),
-    statsSourceUrl: statsSource?.latestFetchUrl ?? null,
-    hasFixtureSource: briefing.sources.some(
-      (source) => source.code.startsWith('fixture') || source.code === 'open-cc0-sample',
-    ),
-  };
-}
-
-/** 轻量搜索索引：给全站头部搜索框做纯前端过滤用，不查询点位。 */
-export async function loadSearchIndex(database: BeeDb = defaultDb): Promise<SearchItem[]> {
-  const [seriesResult, quoteResult, categories] = await Promise.all([
-    database
-      .select({
-        code: dbSchema.marketSeries.code,
-        nameCn: dbSchema.marketSeries.nameCn,
-        venue: dbSchema.marketSeries.venue,
-        layer: dbSchema.marketSeries.layer,
-        categoryName: dbSchema.category.nameCn,
-      })
-      .from(dbSchema.marketSeries)
-      .leftJoin(dbSchema.category, sql`${dbSchema.category.id} = ${dbSchema.marketSeries.categoryId}`)
-      .where(sql`${dbSchema.marketSeries.displayAllowed} = true and (${dbSchema.marketSeries.categoryId} is not null or ${dbSchema.marketSeries.layer} = 'international')`)
-      .orderBy(dbSchema.marketSeries.code),
-    database
-      .select({
-        id: dbSchema.dailyQuote.id,
-        quoteDate: dbSchema.dailyQuote.quoteDate,
-        categoryName: dbSchema.category.nameCn,
-        specName: dbSchema.specGrade.nameCn,
-        regionName: dbSchema.region.nameCn,
-      })
-      .from(dbSchema.dailyQuote)
-      .innerJoin(dbSchema.category, sql`${dbSchema.category.id} = ${dbSchema.dailyQuote.categoryId}`)
-      .innerJoin(dbSchema.specGrade, sql`${dbSchema.specGrade.id} = ${dbSchema.dailyQuote.specId}`)
-      .innerJoin(dbSchema.region, sql`${dbSchema.region.id} = ${dbSchema.dailyQuote.regionId}`)
-      .where(sql`${dbSchema.dailyQuote.status} = 'published'`)
-      .orderBy(dbSchema.dailyQuote.quoteDate),
-    database.select({ code: dbSchema.category.code, name: dbSchema.category.nameCn }).from(dbSchema.category),
-  ]);
-
-  const items: SearchItem[] = [
-    ...categories.map((category) => ({
-      href: `/?category=${encodeURIComponent(category.code)}`,
-      label: category.name,
-      meta: '品类筛选',
-      keywords: category.name,
-    })),
-    ...seriesResult.map((series) => ({
-      href: `/m/s-${series.code}`,
-      label: series.categoryName ? `${series.categoryName} · ${series.nameCn}` : series.nameCn,
-      meta: [series.venue ?? '', series.layer === 'international' ? '国际' : '国内'].filter(Boolean).join(' · '),
-      keywords: `${series.categoryName ?? ''} ${series.nameCn} ${series.code} ${series.venue ?? ''}`,
-    })),
-    ...quoteResult.map((quote) => ({
-      href: `/m/q-${quote.id}`,
-      label: `${quote.categoryName} · ${quote.specName} · ${quote.regionName}`,
-      meta: `${quote.quoteDate} · 参考报价`,
-      keywords: `${quote.categoryName} ${quote.specName} ${quote.regionName} ${quote.quoteDate}`,
-    })),
-  ];
-  return items;
 }

@@ -1,230 +1,135 @@
-import { asc, eq, inArray } from 'drizzle-orm';
-import { dbSchema, type BeeDb } from '@bee/db';
+import { eq } from 'drizzle-orm';
+import { v4, type BeeDb } from '@bee/db';
 import {
-  flagToBoolean,
   numericToNumber,
   timestampToIso,
-  traceIndicatorResponseSchema,
   traceQuoteResponseSchema,
   type TraceIndicatorResponse,
   type TraceQuoteResponse,
 } from '@bee/core';
 import { db as defaultDb } from '../db';
 
-function isoRequired(value: Date | string | null, label: string): string {
-  const iso = timestampToIso(value);
-  if (!iso) throw new Error(`${label} 缺少时间`);
-  return iso;
-}
+/**
+ * 溯源数据层（v4）。
+ *
+ * v4 没有观测/校验/归档表：一条 price_daily 就是一次来源直发的价格记录。
+ * loadQuoteTrace 按 price_daily.id 返回「这条价格本身 + 品类/规格/地域 + 来源 + raw_url」，
+ * 旧 observation/validation 字段用空值/中性默认值填，绝不伪造观测 id 或校验结论。
+ *
+ * 指标与期货序列在 v4 中不存在，对应 loader 返回 null（调用方按 404 处理）。
+ */
 
-function numberRequired(value: string | number | null, label: string): number {
-  const n = numericToNumber(value);
-  if (n === null) throw new Error(`${label} 缺少数值`);
-  return n;
-}
-
-function regionLevel(level: string): 'market' | 'city' {
-  if (level !== 'market' && level !== 'city') {
-    throw new Error(`daily_quote 只能挂在 market/city 地域：收到 ${level}`);
-  }
-  return level;
+function regionLevelForTrace(level: string): 'market' | 'city' {
+  return level === 'city' ? 'city' : 'market';
 }
 
 /**
- * 定档报价溯源：quote → 全部参与观测 → 原始抓取（URL/时间/内容指纹）+ 校验留痕。
- * 返回值通过 @bee/core 的 traceQuoteResponseSchema 解析，任何字段漂移都会在这里 fail-loud。
+ * 定档报价溯源：price_daily → 品类 / 规格 / 地域 / 来源 / 原文链接。
+ * 返回值仍通过 @bee/core 契约解析，字段漂移会在这里 fail-loud。
  */
 export async function loadQuoteTrace(
   quoteId: string,
   database: BeeDb = defaultDb,
 ): Promise<TraceQuoteResponse | null> {
-  const [quote] = await database
+  const [row] = await database
     .select({
-      id: dbSchema.dailyQuote.id,
-      categoryName: dbSchema.category.nameCn,
-      specName: dbSchema.specGrade.nameCn,
-      regionName: dbSchema.region.nameCn,
-      regionLevel: dbSchema.region.level,
-      quoteDate: dbSchema.dailyQuote.quoteDate,
-      priceType: dbSchema.dailyQuote.priceType,
-      valueLow: dbSchema.dailyQuote.valueLow,
-      valueHigh: dbSchema.dailyQuote.valueHigh,
-      valueMid: dbSchema.dailyQuote.valueMid,
-      method: dbSchema.dailyQuote.method,
-      methodVersion: dbSchema.dailyQuote.methodVersion,
-      confidence: dbSchema.dailyQuote.confidence,
-      coverageNote: dbSchema.dailyQuote.coverageNote,
-      status: dbSchema.dailyQuote.status,
-      contributingObservationIds: dbSchema.dailyQuote.contributingObservationIds,
+      id: v4.priceDaily.id,
+      categoryName: v4.category.nameCn,
+      specName: v4.spec.name,
+      regionName: v4.region.name,
+      regionLevel: v4.region.level,
+      priceDate: v4.priceDaily.priceDate,
+      priceType: v4.priceDaily.priceType,
+      valueLow: v4.priceDaily.valueLow,
+      valueHigh: v4.priceDaily.valueHigh,
+      valueMid: v4.priceDaily.valueMid,
+      unit: v4.priceDaily.unit,
+      note: v4.priceDaily.note,
+      status: v4.priceDaily.status,
+      rawUrl: v4.priceDaily.rawUrl,
+      capturedAt: v4.priceDaily.capturedAt,
+      sourceCode: v4.source.code,
+      sourceName: v4.source.name,
+      sourceBaseUrl: v4.source.baseUrl,
     })
-    .from(dbSchema.dailyQuote)
-    .innerJoin(dbSchema.category, eq(dbSchema.dailyQuote.categoryId, dbSchema.category.id))
-    .innerJoin(dbSchema.specGrade, eq(dbSchema.dailyQuote.specId, dbSchema.specGrade.id))
-    .innerJoin(dbSchema.region, eq(dbSchema.dailyQuote.regionId, dbSchema.region.id))
-    .where(eq(dbSchema.dailyQuote.id, quoteId));
+    .from(v4.priceDaily)
+    .innerJoin(v4.category, eq(v4.category.id, v4.priceDaily.categoryId))
+    .leftJoin(v4.spec, eq(v4.spec.id, v4.priceDaily.specId))
+    .innerJoin(v4.region, eq(v4.region.id, v4.priceDaily.regionId))
+    .leftJoin(v4.source, eq(v4.source.id, v4.priceDaily.sourceId))
+    .where(eq(v4.priceDaily.id, quoteId));
 
-  if (!quote) return null;
+  if (!row) return null;
 
-  const observationIds = quote.contributingObservationIds;
-  const observations = await database
-    .select({
-      id: dbSchema.priceObservation.id,
-      fetchId: dbSchema.priceObservation.fetchId,
-      sourceCode: dbSchema.source.code,
-      sourceName: dbSchema.source.name,
-      sourceType: dbSchema.source.type,
-      trustWeight: dbSchema.source.trustWeight,
-      url: dbSchema.rawFetch.url,
-      fetchedAt: dbSchema.rawFetch.fetchedAt,
-      contentSha256: dbSchema.rawFetch.contentSha256,
-      rawText: dbSchema.priceObservation.rawText,
-      rawValueLow: dbSchema.priceObservation.rawValueLow,
-      rawValueHigh: dbSchema.priceObservation.rawValueHigh,
-      rawUnit: dbSchema.priceObservation.rawUnit,
-      normValueLow: dbSchema.priceObservation.normValueLow,
-      normValueHigh: dbSchema.priceObservation.normValueHigh,
-      quoteDate: dbSchema.priceObservation.quoteDate,
-      validationStatus: dbSchema.priceObservation.validationStatus,
-    })
-    .from(dbSchema.priceObservation)
-    .innerJoin(dbSchema.source, eq(dbSchema.priceObservation.sourceId, dbSchema.source.id))
-    .innerJoin(dbSchema.rawFetch, eq(dbSchema.priceObservation.fetchId, dbSchema.rawFetch.id))
-    .where(inArray(dbSchema.priceObservation.id, observationIds));
+  const valueMid = numericToNumber(row.valueMid);
+  if (valueMid === null) return null;
 
-  if (observations.length !== observationIds.length) {
-    throw new Error(`定档 ${quoteId} 的贡献观测缺失：声明 ${observationIds.length}，实际 ${observations.length}`);
-  }
-
-  const validations =
-    observationIds.length === 0
-      ? []
-      : await database
-          .select({
-            observationId: dbSchema.validationResult.observationId,
-            checkKind: dbSchema.validationResult.checkKind,
-            verdict: dbSchema.validationResult.verdict,
-            performedByRef: dbSchema.validationResult.performedByRef,
-            detail: dbSchema.validationResult.detail,
-            at: dbSchema.validationResult.createdAt,
-          })
-          .from(dbSchema.validationResult)
-          .where(inArray(dbSchema.validationResult.observationId, observationIds))
-          .orderBy(asc(dbSchema.validationResult.createdAt));
-
-  const trailByObservation = new Map<string, typeof validations>();
-  for (const row of validations) {
-    const list = trailByObservation.get(row.observationId) ?? [];
-    list.push(row);
-    trailByObservation.set(row.observationId, list);
-  }
+  const url = row.rawUrl ?? row.sourceBaseUrl ?? '';
+  const fetchedAt = timestampToIso(row.capturedAt) ?? '';
+  const observations =
+    row.sourceCode || url.length > 0
+      ? [
+          {
+            // v4 没有独立观测 id；价格行本身就是最短证据链，这里复用行 id。
+            observationId: row.id,
+            source: {
+              code: row.sourceCode ?? 'unknown',
+              name: row.sourceName ?? '未登记来源',
+              trustWeight: 0,
+              type: url ? ('webpage' as const) : ('api' as const),
+            },
+            url,
+            fetchedAt,
+            contentSha256: '',
+            rawText: row.note ?? '',
+            rawValueLow: numericToNumber(row.valueLow),
+            rawValueHigh: numericToNumber(row.valueHigh),
+            rawUnit: row.unit,
+            normValueLow: numericToNumber(row.valueLow),
+            normValueHigh: numericToNumber(row.valueHigh),
+            quoteDate: row.priceDate,
+            validationStatus: 'unvalidated',
+            validationTrail: [],
+            archiveViewerUrl: url,
+          },
+        ]
+      : [];
 
   const trace = {
     kind: 'daily_quote' as const,
     quote: {
-      id: quote.id,
-      categoryName: quote.categoryName,
-      specName: quote.specName,
-      regionName: quote.regionName,
-      regionLevel: regionLevel(quote.regionLevel),
-      quoteDate: quote.quoteDate,
-      priceType: quote.priceType,
-      valueLow: numberRequired(quote.valueLow, 'quote.value_low'),
-      valueHigh: numberRequired(quote.valueHigh, 'quote.value_high'),
-      valueMid: numberRequired(quote.valueMid, 'quote.value_mid'),
-      method: quote.method,
-      methodVersion: quote.methodVersion,
-      confidence: quote.confidence,
-      coverageNote: quote.coverageNote,
-      status: quote.status,
+      id: row.id,
+      categoryName: row.categoryName,
+      specName: row.specName ?? '品类级',
+      regionName: row.regionName,
+      regionLevel: regionLevelForTrace(row.regionLevel),
+      quoteDate: row.priceDate,
+      priceType: row.priceType,
+      valueLow: numericToNumber(row.valueLow) ?? valueMid,
+      valueHigh: numericToNumber(row.valueHigh) ?? valueMid,
+      valueMid,
+      method: 'single_source' as const,
+      methodVersion: 'v4',
+      confidence: 'medium' as const,
+      coverageNote: row.note,
+      status: row.status,
     },
-    observations: observations.map((observation) => ({
-      observationId: observation.id,
-      source: {
-        code: observation.sourceCode,
-        name: observation.sourceName,
-        trustWeight: numberRequired(observation.trustWeight, 'source.trust_weight'),
-        type: observation.sourceType,
-      },
-      url: observation.url,
-      fetchedAt: isoRequired(observation.fetchedAt, 'raw_fetch.fetched_at'),
-      contentSha256: observation.contentSha256,
-      rawText: observation.rawText,
-      rawValueLow: numericToNumber(observation.rawValueLow),
-      rawValueHigh: numericToNumber(observation.rawValueHigh),
-      rawUnit: observation.rawUnit,
-      normValueLow: numericToNumber(observation.normValueLow),
-      normValueHigh: numericToNumber(observation.normValueHigh),
-      quoteDate: observation.quoteDate,
-      validationStatus: observation.validationStatus,
-      validationTrail: (trailByObservation.get(observation.id) ?? []).map((row) => ({
-        checkKind: row.checkKind,
-        verdict: row.verdict,
-        performedByRef: row.performedByRef,
-        detail: row.detail,
-        at: isoRequired(row.at, 'validation_result.created_at'),
-      })),
-      archiveViewerUrl: `/internal/raw/${observation.fetchId}`,
-    })),
+    observations,
   };
 
   return traceQuoteResponseSchema.parse(trace);
 }
 
-/**
- * 加工指标溯源：indicator → 贡献定档报价（含聚合时值快照）。
- * 每个 quoteId 可继续调用 /api/trace/quote/{quoteId} 追到观测与原文。
- */
+function downloadedUrl(url: string): boolean {
+  return url.length > 0;
+}
+
+/** 加工指标在 v4 已删除；调用方按 404 处理。 */
 export async function loadIndicatorTrace(
-  indicatorId: string,
-  database: BeeDb = defaultDb,
+  _indicatorId: string,
+  _database: BeeDb = defaultDb,
 ): Promise<TraceIndicatorResponse | null> {
-  const [indicator] = await database
-    .select({
-      id: dbSchema.derivedIndicator.id,
-      kind: dbSchema.derivedIndicator.kind,
-      categoryName: dbSchema.category.nameCn,
-      regionName: dbSchema.region.nameCn,
-      basisDate: dbSchema.derivedIndicator.basisDate,
-      value: dbSchema.derivedIndicator.value,
-      methodJson: dbSchema.derivedIndicator.methodJson,
-      methodVersion: dbSchema.derivedIndicator.methodVersion,
-      isAggregate: dbSchema.derivedIndicator.isAggregate,
-    })
-    .from(dbSchema.derivedIndicator)
-    .innerJoin(dbSchema.category, eq(dbSchema.derivedIndicator.categoryId, dbSchema.category.id))
-    .innerJoin(dbSchema.region, eq(dbSchema.derivedIndicator.regionId, dbSchema.region.id))
-    .where(eq(dbSchema.derivedIndicator.id, indicatorId));
-
-  if (!indicator) return null;
-
-  const contributions = await database
-    .select({
-      quoteId: dbSchema.indicatorContribution.quoteId,
-      valueAtAggregation: dbSchema.indicatorContribution.valueAtAggregation,
-    })
-    .from(dbSchema.indicatorContribution)
-    .where(eq(dbSchema.indicatorContribution.indicatorId, indicatorId));
-
-  const trace = {
-    kind: 'derived_indicator' as const,
-    indicator: {
-      id: indicator.id,
-      kind: indicator.kind,
-      categoryName: indicator.categoryName,
-      regionName: indicator.regionName,
-      basisDate: indicator.basisDate,
-      value: numberRequired(indicator.value, 'indicator.value'),
-      methodJson: indicator.methodJson,
-      methodVersion: indicator.methodVersion,
-      isAggregate: flagToBoolean(indicator.isAggregate as 0 | 1),
-    },
-    quotes: contributions.map((row) => ({
-      quoteId: row.quoteId,
-      valueAtAggregation: numberRequired(row.valueAtAggregation, 'indicator_contribution.value_at_aggregation'),
-    })),
-  };
-
-  return traceIndicatorResponseSchema.parse(trace);
+  return null;
 }
 
 export interface SeriesPointTrace {
@@ -254,71 +159,10 @@ export interface SeriesPointTrace {
   archiveViewerUrl: string;
 }
 
-/**
- * 时序点溯源：series_point → 原始抓取（URL / 时间 / 内容指纹）。
- *
- * 与 daily_quote 的溯源契约保持同一组字段（source / url / fetchedAt / contentSha256 /
- * archiveViewerUrl），但 kind 独立，前端可复用同一块展开面板。
- */
+/** 期货/指数序列在 v4 已删除；调用方按 404 处理。 */
 export async function loadSeriesPointTrace(
-  pointId: string,
-  database: BeeDb = defaultDb,
+  _pointId: string,
+  _database: BeeDb = defaultDb,
 ): Promise<SeriesPointTrace | null> {
-  const [row] = await database
-    .select({
-      id: dbSchema.seriesPoint.id,
-      obsDate: dbSchema.seriesPoint.obsDate,
-      revision: dbSchema.seriesPoint.revision,
-      value: dbSchema.seriesPoint.value,
-      sourceRowIndex: dbSchema.seriesPoint.sourceRowIndex,
-      seriesCode: dbSchema.marketSeries.code,
-      seriesName: dbSchema.marketSeries.nameCn,
-      venue: dbSchema.marketSeries.venue,
-      instrumentCode: dbSchema.marketSeries.instrumentCode,
-      currency: dbSchema.marketSeries.currency,
-      unit: dbSchema.unit.nameCn,
-      sourceCode: dbSchema.source.code,
-      sourceName: dbSchema.source.name,
-      sourceType: dbSchema.source.type,
-      trustWeight: dbSchema.source.trustWeight,
-      url: dbSchema.rawFetch.url,
-      fetchedAt: dbSchema.rawFetch.fetchedAt,
-      contentSha256: dbSchema.rawFetch.contentSha256,
-      fetchId: dbSchema.rawFetch.id,
-    })
-    .from(dbSchema.seriesPoint)
-    .innerJoin(dbSchema.marketSeries, eq(dbSchema.marketSeries.id, dbSchema.seriesPoint.seriesId))
-    .innerJoin(dbSchema.unit, eq(dbSchema.unit.id, dbSchema.marketSeries.unitId))
-    .innerJoin(dbSchema.source, eq(dbSchema.source.id, dbSchema.seriesPoint.sourceId))
-    .innerJoin(dbSchema.rawFetch, eq(dbSchema.rawFetch.id, dbSchema.seriesPoint.fetchId))
-    .where(eq(dbSchema.seriesPoint.id, pointId));
-
-  if (!row) return null;
-
-  return {
-    kind: 'series_point',
-    point: {
-      id: row.id,
-      seriesCode: row.seriesCode,
-      seriesName: row.seriesName,
-      venue: row.venue,
-      instrumentCode: row.instrumentCode,
-      obsDate: row.obsDate,
-      revision: row.revision,
-      value: numberRequired(row.value, 'series_point.value'),
-      unit: row.unit ?? null,
-      currency: row.currency,
-    },
-    source: {
-      code: row.sourceCode,
-      name: row.sourceName,
-      type: row.sourceType,
-      trustWeight: numberRequired(row.trustWeight, 'source.trust_weight'),
-    },
-    url: row.url,
-    fetchedAt: isoRequired(row.fetchedAt, 'raw_fetch.fetched_at'),
-    contentSha256: row.contentSha256,
-    sourceRowIndex: row.sourceRowIndex,
-    archiveViewerUrl: `/internal/raw/${row.fetchId}`,
-  };
+  return null;
 }

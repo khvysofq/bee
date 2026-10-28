@@ -17,16 +17,15 @@ function fmtDuration(value: number | null): string {
 
 const EMPTY_EXAMPLE = {
   code: 'demo.local.fixture',
-  type: 'fetch_table',
-  tier: 'deterministic',
-  target: { url: 'fixture://fengj-copper.html', method: 'GET', rps: 0.5 },
-  goal: '离线自检：解析仓库内 fengj 废铜表格 fixture',
-  adapter: 'fengj-copper-v1',
-  mapping: { table: 'price_observation', data_class: 'spot_quote', keys: { region: 'city', value: 'price' } },
+  kind: 'fetch_price',
+  categoryCode: '1110201',
+  sourceCode: 'demo-fixture',
   schedule: { cron: '*/15 * * * *', tz: 'Asia/Shanghai', enabled: true },
-  limits: { timeout_s: 30, max_attempts: 1, backoff_s: [0] },
-  policy: { source_code: 'demo-fixture', redistribution: 'licensed' },
-  priority: 3,
+  config: {
+    adapter: 'fengj-copper-v1',
+    goal: '离线自检：解析仓库内 fengj 废铜表格 fixture',
+    limits: { timeout_s: 30, max_attempts: 1, backoff_s: [0] },
+  },
   enabled: true,
 };
 

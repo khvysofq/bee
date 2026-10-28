@@ -20,9 +20,51 @@ export interface MarketChange {
   pct: number;
 }
 
+/**
+ * 报价单品页 slug（v4 稳定键，不含每天变化的行 id）。
+ * 形如 `p-<categoryCode>-<regionCode>-<specCode|all>-<priceType>`。
+ *
+ * 约定：category/region code 不含连字符（品类为内部数字码，地域为 WORLD/CN/GB 码）；
+ * spec code 允许连字符，因此解析时以「第一个连字符」切品类、以「最后一个连字符」切价类型。
+ */
+export function quoteSlug(parts: {
+  categoryCode: string;
+  regionCode: string;
+  specCode: string | null;
+  priceType: string;
+}): string {
+  return ['p', parts.categoryCode, parts.regionCode, parts.specCode ?? 'all', parts.priceType].join('-');
+}
+
+export interface ParsedQuoteSlug {
+  categoryCode: string;
+  regionCode: string;
+  specCode: string | null;
+  priceType: string;
+}
+
+export function parseQuoteSlug(slug: string): ParsedQuoteSlug | null {
+  if (!slug.startsWith('p-')) return null;
+  const rest = slug.slice(2);
+  const firstDash = rest.indexOf('-');
+  if (firstDash <= 0) return null;
+  const categoryCode = rest.slice(0, firstDash);
+  const afterCategory = rest.slice(firstDash + 1);
+  const lastDash = afterCategory.lastIndexOf('-');
+  if (lastDash <= 0) return null;
+  const priceType = afterCategory.slice(lastDash + 1);
+  const middle = afterCategory.slice(0, lastDash);
+  const secondDash = middle.indexOf('-');
+  if (secondDash <= 0) return null;
+  const regionCode = middle.slice(0, secondDash);
+  const specCode = middle.slice(secondDash + 1);
+  if (!categoryCode || !regionCode || !priceType) return null;
+  return { categoryCode, regionCode, specCode: specCode === 'all' ? null : specCode, priceType };
+}
+
 export interface MarketRow {
   key: string;
-  /** 单品页 slug：s-<series.code> / q-<daily_quote.id>。 */
+  /** 单品页 slug：p-<categoryCode>-<regionCode>-<specCode|all>-<priceType>。 */
   slug: string;
   kind: 'series' | 'quote';
   scope: MarketScope;

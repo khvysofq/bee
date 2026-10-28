@@ -1,39 +1,38 @@
 import Link from 'next/link';
 import { count } from 'drizzle-orm';
-import { db, dbSchema } from '@/db';
+import { v4 } from '@bee/db';
+import { db } from '@/db';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * 数据底座状态页（P0-1 验收「仓库可本地起服务」的冒烟页面）。
+ * 数据底座状态页（v4）：9 张表的行数冒烟。
  * GUA-26（P0-6）：原首页 `/` 改版为面向最终用户的落地页，本页原样迁至 `/status`。
  */
 async function loadStatus() {
-  const { category, specGrade, region, source, rawFetch, priceObservation, dailyQuote, derivedIndicator, exceptionQueue } =
-    dbSchema;
   const [
-    categories, specs, regions, sources, fetches, observations, quotes, indicators, exceptions,
+    categories, specs, regions, sources, prices, contents, jobs, jobRuns, audits,
   ] = await Promise.all([
-    db.select({ n: count() }).from(category),
-    db.select({ n: count() }).from(specGrade),
-    db.select({ n: count() }).from(region),
-    db.select({ n: count() }).from(source),
-    db.select({ n: count() }).from(rawFetch),
-    db.select({ n: count() }).from(priceObservation),
-    db.select({ n: count() }).from(dailyQuote),
-    db.select({ n: count() }).from(derivedIndicator),
-    db.select({ n: count() }).from(exceptionQueue),
+    db.select({ n: count() }).from(v4.category),
+    db.select({ n: count() }).from(v4.spec),
+    db.select({ n: count() }).from(v4.region),
+    db.select({ n: count() }).from(v4.source),
+    db.select({ n: count() }).from(v4.priceDaily),
+    db.select({ n: count() }).from(v4.content),
+    db.select({ n: count() }).from(v4.job),
+    db.select({ n: count() }).from(v4.jobRun),
+    db.select({ n: count() }).from(v4.adminAudit),
   ]);
   return {
-    品类字典: categories[0]!.n,
-    规格等级字典: specs[0]!.n,
+    品类: categories[0]!.n,
+    规格: specs[0]!.n,
     地域: regions[0]!.n,
     来源注册: sources[0]!.n,
-    原始抓取存档: fetches[0]!.n,
-    报价观测: observations[0]!.n,
-    当日定档报价: quotes[0]!.n,
-    加工指标: indicators[0]!.n,
-    异常队列: exceptions[0]!.n,
+    每日价格: prices[0]!.n,
+    内容文档: contents[0]!.n,
+    采集任务: jobs[0]!.n,
+    运行记录: jobRuns[0]!.n,
+    管理审计: audits[0]!.n,
   };
 }
 
@@ -51,13 +50,13 @@ export default async function StatusPage() {
       <p className="eyebrow">bee · 运维</p>
       <h1>数据底座状态</h1>
       <p className="sub">
-        规范化报价库（品类 × 规格/等级 × 地域 × 日期 × 来源 × 校验状态）· P0-1 骨架
+        v4 数据模型（9 表，品类为轴）· category / spec / region / price_daily / content / source / job / job_run / admin_audit
       </p>
       {error ? (
         <div className="error">
           <p>数据库不可用：{error}</p>
           <p>
-            本地起库：<code>docker compose up -d postgres && pnpm db:migrate && pnpm db:seed</code>
+            本地起库：<code>docker compose up -d postgres && pnpm db:migrate &amp;&amp; pnpm db:seed</code>
           </p>
         </div>
       ) : (
@@ -74,8 +73,7 @@ export default async function StatusPage() {
         </table>
       )}
       <p className="foot">
-        数据字典当前为草案（draft）状态；真实来源登记与采集在 P0-3 落地。设计文档见
-        <code>docs/data-model.md</code> 与 <code>docs/adr/</code>。
+        架构以 <code>docs/db-architecture-v4.md</code> 为准；旧 25 表模型仅作历史参考。
       </p>
       <p className="foot">
         <Link href="/internal/ops">← 每日巡检 / 异常队列</Link> · <Link href="/">返回用户站</Link>

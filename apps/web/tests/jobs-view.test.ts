@@ -41,7 +41,6 @@ const run: JobWithStats['recentRuns'][number] = {
   costTokens: 0,
   fetchedBytes: 2048,
   httpStatus: 200,
-  rawFetchId: null,
   errorCode: null,
   errorDetail: null,
   nextRetryAt: null,

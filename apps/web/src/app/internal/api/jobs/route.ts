@@ -1,9 +1,8 @@
 import { isValidCron } from '@bee/jobs/cron';
-import { hasAdapter } from '@bee/jobs/adapters';
 import { db } from '@/db';
 import { authorizeAdmin, errorResponse } from '@/lib/internal-auth';
 import { loadJobsData } from '@/lib/jobs-data';
-import { jobDefinitionSchema, registerJob } from '@/lib/jobs-admin';
+import { jobSchema, registerJob } from '@/lib/jobs-admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,7 +14,7 @@ export async function GET(request: Request): Promise<Response> {
   return Response.json(data);
 }
 
-/** 新建/更新任务：按 code upsert。校验 cron 合法、adapter 存在。 */
+/** 新建/更新任务：按 code upsert。校验 cron 合法；品类/来源 code 必须已登记。 */
 export async function POST(request: Request): Promise<Response> {
   const denied = authorizeAdmin(request);
   if (denied) return denied;
@@ -25,7 +24,7 @@ export async function POST(request: Request): Promise<Response> {
   } catch {
     return errorResponse('invalid_json', '请求体不是合法 JSON', 400);
   }
-  const parsed = jobDefinitionSchema.safeParse(body);
+  const parsed = jobSchema.safeParse(body);
   if (!parsed.success) {
     return errorResponse(
       'invalid_job',
@@ -45,15 +44,25 @@ export async function POST(request: Request): Promise<Response> {
       const [hour, minute] = value.split(':').map(Number);
       return (hour ?? 0) * 60 + (minute ?? 0);
     };
-    if (!schedule.windowStart || !schedule.windowEnd || toMinutes(schedule.windowEnd) <= toMinutes(schedule.windowStart)) {
+    if (
+      !schedule.windowStart ||
+      !schedule.windowEnd ||
+      toMinutes(schedule.windowEnd) <= toMinutes(schedule.windowStart)
+    ) {
       return errorResponse('invalid_window', `随机窗口非法：${schedule.windowStart}–${schedule.windowEnd}`, 422);
     }
-  } else if (!isValidCron(schedule.cron ?? '')) {
-    return errorResponse('invalid_cron', `cron 非法：${schedule.cron ?? '∅'}`, 422);
+  } else if (schedule.cron && !isValidCron(schedule.cron)) {
+    return errorResponse('invalid_cron', `cron 非法：${schedule.cron}`, 422);
   }
-  if (job.adapter && !hasAdapter(job.adapter)) {
-    return errorResponse('unknown_adapter', `adapter 未注册：${job.adapter}`, 422);
+
+  try {
+    const saved = await registerJob(db, job);
+    return Response.json({ job: saved });
+  } catch (error) {
+    return errorResponse(
+      'invalid_reference',
+      error instanceof Error ? error.message : String(error),
+      422,
+    );
   }
-  const saved = await registerJob(db, job);
-  return Response.json({ job: saved });
 }

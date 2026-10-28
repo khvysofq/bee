@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { loadOpsData } from '@/lib/ops';
-import { recordDailyInspection, resolveException } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,24 +94,9 @@ export default async function OpsPage() {
 
       <section className="inspection-action">
         <h2>今日巡检记录</h2>
-        {data.inspection ? (
-          <div className="inspection-done">
-            <p>
-              已记录：<strong>{fmtDateTime(data.inspection.finishedAt)}</strong> · 执行人{' '}
-              <code>{data.inspection.triggeredBy}</code> · 台账 run <code>{data.inspection.id}</code>
-            </p>
-            {data.inspection.note ? <p>备注：{data.inspection.note}</p> : null}
-            <p className="muted">同一自然日重复提交会被台账幂等键复用，不会产生第二条巡检记录。</p>
-          </div>
-        ) : (
-          <form action={recordDailyInspection} className="inspection-form">
-            <label>
-              巡检备注（可选）
-              <input name="note" maxLength={500} placeholder="例如：已核对 P0-3 数据链与异常队列" />
-            </label>
-            <button type="submit">记录今日巡检（单人运营）</button>
-          </form>
-        )}
+        <p className="muted">
+          v4 数据层暂未提供巡检台账写入；这里只读展示数据新鲜度与任务运行状态，巡检记录功能停用。
+        </p>
       </section>
 
       <section className="exceptions" aria-label="开放异常队列">
@@ -167,11 +151,7 @@ export default async function OpsPage() {
                     <td>{exception.ageHours.toFixed(2)} h</td>
                     <td>{exception.assignedTo}</td>
                     <td>
-                      <form action={resolveException} className="resolve-form">
-                        <input type="hidden" name="id" value={exception.id} />
-                        <input name="resolution" placeholder="处理说明" maxLength={500} />
-                        <button type="submit">标记已解决</button>
-                      </form>
+                      <span className="muted">—（v4 异常队列已删除）</span>
                     </td>
                   </tr>
                 ))}
@@ -201,8 +181,7 @@ export default async function OpsPage() {
           <Link href="/internal/status">← 数据状态</Link> · <Link href="/">返回用户站</Link>
         </p>
         <p className="muted">
-          巡检记录落在 <code>pipeline_run</code>（kind=maintenance，幂等键 ops_inspection:日期）；异常处理落在{' '}
-          <code>exception_queue</code>。单人运营 + AI 预检，人只处理异常与口径决策。
+          巡检与异常处理在 v4 中尚未实现；当前只读展示 price_daily 的新鲜度与 job_run 的最新运行。
         </p>
       </footer>
     </main>

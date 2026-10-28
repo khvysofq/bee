@@ -1,28 +1,20 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/db';
-import { answerQuestion } from '@/lib/qa/answer';
 
 export const dynamic = 'force-dynamic';
 
-const MAX_QUESTION_CHARS = 200;
-
 /**
- * 右侧问答抽屉的数据入口：与 /qa 页面复用同一套 answerQuestion 检索与回答逻辑。
- * 不落库、不保存提问；价格数字只来自报价库。
+ * 右侧问答抽屉的数据入口。
+ *
+ * v4 的问答事实检索尚未重建（旧 observation/derived_indicator 已删除），
+ * 这里明确返回 503，不降级成没有依据的回答。站内 /qa 页面仍可展示常识条目与「知识库重建中」提示。
  */
-export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const question = (url.searchParams.get('q') ?? '').trim().slice(0, MAX_QUESTION_CHARS);
-  if (question.length === 0) {
-    return NextResponse.json({ answer: null }, { headers: { 'Cache-Control': 'no-store' } });
-  }
-  try {
-    const answer = await answerQuestion(question, { db });
-    return NextResponse.json({ answer }, { headers: { 'Cache-Control': 'no-store' } });
-  } catch {
-    return NextResponse.json(
-      { answer: null, error: 'answer_unavailable' },
-      { status: 503, headers: { 'Cache-Control': 'no-store' } },
-    );
-  }
+export async function GET() {
+  return NextResponse.json(
+    {
+      answer: null,
+      error: 'qa_rebuilding',
+      message: '知识库重建中：问答事实检索暂不可用。',
+    },
+    { status: 503, headers: { 'Cache-Control': 'no-store' } },
+  );
 }

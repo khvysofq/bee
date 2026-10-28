@@ -1,31 +1,13 @@
-import { db } from '@/db';
-import { ingestPayload, IngestError } from '@/lib/ingest';
-import { authorizeIngest, errorResponse } from '@/lib/internal-auth';
+import { V4_INGEST_MESSAGE } from '../../../lib/ingest';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * POST /internal/ingest —— worker/agent 写业务表的唯一入口。
- * 鉴权：Authorization: Bearer $INGEST_TOKEN；env 缺失 → 503，绝不无鉴权放行。
+ * POST /internal/ingest —— 采集写业务表的唯一入口。
+ *
+ * v4 的校验/入库链路尚未实现：保留入口，明确返回 501，不写任何表。
  */
-export async function POST(request: Request): Promise<Response> {
-  const denied = authorizeIngest(request);
-  if (denied) return denied;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return errorResponse('invalid_json', '请求体不是合法 JSON', 400);
-  }
-
-  try {
-    const result = await ingestPayload(db, body);
-    return Response.json(result);
-  } catch (error) {
-    if (error instanceof IngestError) return errorResponse(error.code, error.message, error.status);
-    console.error('[ingest] internal error', error);
-    return errorResponse('internal_error', 'ingest 处理失败', 500);
-  }
+export async function POST(_request?: Request): Promise<Response> {
+  return Response.json({ error: V4_INGEST_MESSAGE }, { status: 501 });
 }

@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { dbSchema } from '@bee/db';
+import { v4 } from '@bee/db';
 import { enqueueRun } from '@bee/jobs/queue';
 import { db } from '@/db';
 import { authorizeAdmin, errorResponse } from '@/lib/internal-auth';
@@ -13,7 +13,7 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
   const denied = authorizeAdmin(request);
   if (denied) return denied;
   const { code } = await context.params;
-  const [job] = await db.select().from(dbSchema.jobDef).where(eq(dbSchema.jobDef.code, code)).limit(1);
+  const [job] = await db.select().from(v4.job).where(eq(v4.job.code, code)).limit(1);
   if (!job) return errorResponse('not_found', `任务不存在：${code}`, 404);
 
   let boss;

@@ -1,129 +1,96 @@
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
-import { dbSchema, type BeeDb } from '@bee/db';
+import { v4, type BeeDb } from '@bee/db';
 
-/** 管理 API 的任务定义校验与 upsert。字段语义与 packages/db/src/schema/jobs.ts 一一对应。 */
+/** 管理 API 的任务定义校验与 upsert（v4：job 表）。 */
 
-export const jobDefinitionSchema = z.object({
+export const JOB_KINDS = ['fetch_price', 'fetch_news', 'digest', 'analysis', 'forecast'] as const;
+
+export const jobSchema = z.object({
   code: z
     .string()
     .min(3)
     .max(120)
     .regex(/^[a-z0-9][a-z0-9._-]*$/, 'code 只允许小写字母、数字、点、下划线、连字符'),
-  type: z.enum(['fetch_table', 'fetch_article', 'render_page', 'extract_news', 'analyze', 'healthcheck']),
-  tier: z.enum(['deterministic', 'render', 'agent']).default('deterministic'),
-  target: z.object({
-    url: z.string().min(1),
-    urls: z.array(z.string().min(1)).optional(),
-    method: z.string().optional(),
-    headers: z.record(z.string(), z.string()).optional(),
-    rps: z.number().positive().optional(),
-  }),
-  goal: z.string().min(1),
-  adapter: z.string().nullable().optional(),
-  output_schema: z.unknown().optional(),
-  mapping: z
-    .object({
-      table: z.string().min(1),
-      data_class: z.string().optional(),
-      keys: z.record(z.string(), z.string()).optional(),
-    })
-    .default({ table: 'price_observation' }),
-  // 两种排期形态（ADR-0010 补充）：
-  //  - cron：固定时刻；
-  //  - random_window：每天在窗口里按 (code, 日期) 哈希挑一个整分钟，避免固定时刻被识别成爬虫。
-  schedule: z.union([
-    z.object({
-      mode: z.literal('random_window').optional(),
-      cron: z.string().min(1),
-      tz: z.string().default('Asia/Shanghai'),
-      enabled: z.boolean().default(true),
-    }),
-    z.object({
-      mode: z.literal('random_window'),
-      windowStart: z.string().regex(/^\d{1,2}:\d{2}$/),
-      windowEnd: z.string().regex(/^\d{1,2}:\d{2}$/),
-      tz: z.string().default('Asia/Shanghai'),
-      enabled: z.boolean().default(true),
-    }),
-  ]),
-  limits: z
-    .object({
-      timeout_s: z.number().int().positive().default(120),
-      max_attempts: z.number().int().min(1).default(1),
-      backoff_s: z.array(z.number().int().min(0)).default([]),
-    })
-    .default({ timeout_s: 120, max_attempts: 1, backoff_s: [] }),
-  agent: z.unknown().optional(),
-  policy: z
-    .object({ source_code: z.string().min(1), redistribution: z.string().optional() })
-    .nullable()
-    .optional(),
-  priority: z.number().int().min(1).max(9).default(5),
+  kind: z.enum(JOB_KINDS),
+  categoryCode: z.string().min(1).optional(),
+  sourceCode: z.string().min(1).optional(),
+  /** cron / random_window 等排期参数，原样落 job.schedule。 */
+  schedule: z.record(z.string(), z.unknown()).default({}),
+  /** 采集口径、adapter、limits 等，原样落 job.config。 */
+  config: z.record(z.string(), z.unknown()).default({}),
   enabled: z.boolean().default(true),
-  notes: z.string().max(2000).nullable().optional(),
 });
 
-export type JobDefinitionInput = z.infer<typeof jobDefinitionSchema>;
+export type JobInput = z.infer<typeof jobSchema>;
 
-export async function registerJob(db: BeeDb, job: JobDefinitionInput): Promise<typeof dbSchema.jobDef.$inferSelect> {
-  const enabled = job.enabled;
-  const schedule = { ...job.schedule, enabled: job.schedule.enabled && enabled };
+async function resolveCategoryId(db: BeeDb, code: string | undefined): Promise<string | null> {
+  if (!code) return null;
+  const [row] = await db.select({ id: v4.category.id }).from(v4.category).where(eq(v4.category.code, code));
+  if (!row) throw new Error(`品类不存在：${code}`);
+  return row.id;
+}
+
+async function resolveSourceId(db: BeeDb, code: string | undefined): Promise<string | null> {
+  if (!code) return null;
+  const [row] = await db.select({ id: v4.source.id }).from(v4.source).where(eq(v4.source.code, code));
+  if (!row) throw new Error(`来源不存在：${code}`);
+  return row.id;
+}
+
+export async function registerJob(
+  db: BeeDb,
+  job: JobInput,
+): Promise<typeof v4.job.$inferSelect> {
+  const [categoryId, sourceId] = await Promise.all([
+    resolveCategoryId(db, job.categoryCode),
+    resolveSourceId(db, job.sourceCode),
+  ]);
   const values = {
     code: job.code,
-    type: job.type,
-    tier: job.tier,
-    target: job.target,
-    goal: job.goal,
-    adapter: job.adapter ?? null,
-    outputSchema: job.output_schema ?? null,
-    mapping: job.mapping,
-    schedule,
-    limits: job.limits,
-    agent: job.agent ?? null,
-    policy: job.policy ?? null,
-    priority: job.priority,
-    enabled,
-    notes: job.notes ?? null,
+    kind: job.kind,
+    categoryId,
+    sourceId,
+    schedule: job.schedule,
+    config: job.config,
+    enabled: job.enabled,
     updatedAt: new Date(),
   };
   const [row] = await db
-    .insert(dbSchema.jobDef)
+    .insert(v4.job)
     .values(values)
-    .onConflictDoUpdate({ target: dbSchema.jobDef.code, set: values })
+    .onConflictDoUpdate({ target: v4.job.code, set: values })
     .returning();
   return row!;
 }
 
-export async function toggleJob(db: BeeDb, code: string, enabled: boolean): Promise<typeof dbSchema.jobDef.$inferSelect | null> {
-  const [existing] = await db.select().from(dbSchema.jobDef).where(eq(dbSchema.jobDef.code, code)).limit(1);
+export async function toggleJob(
+  db: BeeDb,
+  code: string,
+  enabled: boolean,
+): Promise<typeof v4.job.$inferSelect | null> {
+  const [existing] = await db.select().from(v4.job).where(eq(v4.job.code, code)).limit(1);
   if (!existing) return null;
-  const schedule = { ...(existing.schedule as Record<string, unknown>), enabled };
   const [row] = await db
-    .update(dbSchema.jobDef)
-    .set({ enabled, schedule, updatedAt: new Date() })
-    .where(eq(dbSchema.jobDef.code, code))
+    .update(v4.job)
+    .set({ enabled, updatedAt: new Date() })
+    .where(eq(v4.job.code, code))
     .returning();
   return row ?? null;
 }
 
-export function exampleJobDefinition(): Record<string, unknown> {
+export function exampleJob(): Record<string, unknown> {
   return {
-    code: 'example.table.daily',
-    type: 'fetch_table',
-    tier: 'deterministic',
-    target: { url: 'fixture://fengj-copper.html', method: 'GET', rps: 0.5 },
-    goal: '抓取表格中的品类/城市/价格/单位/日期',
-    adapter: 'fengj-copper-v1',
-    mapping: {
-      table: 'price_observation',
-      data_class: 'spot_quote',
-      keys: { observed_at: 'date', region: 'city', value: 'price' },
-    },
+    code: 'example.price.daily',
+    kind: 'fetch_price',
+    categoryCode: '1110201',
+    sourceCode: 'example-source',
     schedule: { cron: '20 7 * * *', tz: 'Asia/Shanghai', enabled: true },
-    limits: { timeout_s: 120, max_attempts: 3, backoff_s: [60, 300, 900] },
-    policy: { source_code: 'demo-fixture', redistribution: 'licensed' },
-    priority: 5,
+    config: {
+      adapter: 'example-price-v1',
+      goal: '抓取表格中的品类/城市/价格/单位/日期',
+      limits: { timeout_s: 120, max_attempts: 3, backoff_s: [60, 300, 900] },
+    },
     enabled: true,
   };
 }

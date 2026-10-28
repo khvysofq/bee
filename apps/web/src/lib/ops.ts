@@ -1,5 +1,5 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
-import { dbSchema, type BeeDb } from '@bee/db';
+import { desc, eq, sql } from 'drizzle-orm';
+import { v4, type BeeDb } from '@bee/db';
 import { timestampToIso } from '@bee/core';
 import { db as defaultDb } from '../db';
 
@@ -69,146 +69,80 @@ export interface OpsData {
   };
 }
 
-function ageHours(iso: string, now: Date): number {
-  return Math.max(0, Math.round(((now.getTime() - new Date(iso).getTime()) / 36_000) ) / 100);
-}
-
+/**
+ * 运维页数据层（v4）。
+ *
+ * 只读 price_daily / job_run：v4 删除了 exception_queue、source_event、pipeline_run，
+ * 因此异常、来源事件、巡检台账都返回空/停用状态；页面不会 500。
+ */
 export async function loadOpsData(database: BeeDb = defaultDb, now: Date = new Date()): Promise<OpsData> {
   const today = todayInShanghai(now);
   const generatedAt = now.toISOString();
-  const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-  const exceptionRows = await database
-    .select()
-    .from(dbSchema.exceptionQueue)
-    .where(eq(dbSchema.exceptionQueue.status, 'open'))
-    .orderBy(desc(dbSchema.exceptionQueue.priority), dbSchema.exceptionQueue.createdAt);
-
-  const exceptions: OpsException[] = exceptionRows.map((row) => {
-    const createdAt = timestampToIso(row.createdAt) ?? generatedAt;
-    return {
-      id: row.id,
-      kind: row.kind,
-      subjectType: row.subjectType,
-      subjectId: row.subjectId,
-      summary: row.summary,
-      priority: row.priority,
-      status: row.status,
-      assignedTo: row.assignedTo,
-      createdAt,
-      ageHours: ageHours(createdAt, now),
-    };
-  });
-
-  const [lastCollection] = await database
-    .select({
-      id: dbSchema.pipelineRun.id,
-      status: dbSchema.pipelineRun.status,
-      triggeredBy: dbSchema.pipelineRun.triggeredBy,
-      finishedAt: dbSchema.pipelineRun.finishedAt,
-    })
-    .from(dbSchema.pipelineRun)
-    .where(eq(dbSchema.pipelineRun.kind, 'daily_collect'))
-    .orderBy(desc(dbSchema.pipelineRun.createdAt))
-    .limit(1);
-
-  const [inspectionRow] = await database
-    .select({
-      id: dbSchema.pipelineRun.id,
-      finishedAt: dbSchema.pipelineRun.finishedAt,
-      triggeredBy: dbSchema.pipelineRun.triggeredBy,
-      configJson: dbSchema.pipelineRun.configJson,
-    })
-    .from(dbSchema.pipelineRun)
-    .where(
-      and(
-        eq(dbSchema.pipelineRun.kind, 'maintenance'),
-        eq(dbSchema.pipelineRun.idempotencyKey, inspectionIdempotencyKey(today)),
-      ),
-    )
-    .limit(1);
 
   const [latestQuote] = await database
-    .select({ latest: sql<string | null>`max(${dbSchema.dailyQuote.quoteDate})` })
-    .from(dbSchema.dailyQuote)
-    .where(eq(dbSchema.dailyQuote.status, 'published'));
+    .select({ latest: sql<string | null>`max(${v4.priceDaily.priceDate})` })
+    .from(v4.priceDaily)
+    .where(eq(v4.priceDaily.status, 'published'));
 
   const [latestFetch] = await database
-    .select({ latest: sql<Date | null>`max(${dbSchema.priceObservation.fetchedAt})` })
-    .from(dbSchema.priceObservation);
+    .select({ latest: sql<Date | null>`max(${v4.priceDaily.capturedAt})` })
+    .from(v4.priceDaily);
 
-  const anomalyRows = await database
+  const [lastRunRow] = await database
     .select({
-      id: dbSchema.sourceEvent.id,
-      sourceName: dbSchema.source.name,
-      detail: dbSchema.sourceEvent.detail,
-      createdAt: dbSchema.sourceEvent.createdAt,
+      id: v4.jobRun.id,
+      status: v4.jobRun.status,
+      finishedAt: v4.jobRun.finishedAt,
+      jobCode: v4.job.code,
     })
-    .from(dbSchema.sourceEvent)
-    .innerJoin(dbSchema.source, eq(dbSchema.sourceEvent.sourceId, dbSchema.source.id))
-    .where(and(eq(dbSchema.sourceEvent.eventKind, 'fetch_anomaly'), gte(dbSchema.sourceEvent.createdAt, since24h)))
-    .orderBy(desc(dbSchema.sourceEvent.createdAt));
+    .from(v4.jobRun)
+    .innerJoin(v4.job, eq(v4.job.id, v4.jobRun.jobId))
+    .orderBy(desc(v4.jobRun.startedAt), desc(v4.jobRun.createdAt))
+    .limit(1);
 
-  const high = exceptions.filter((row) => row.priority === 'high').length;
-  const medium = exceptions.filter((row) => row.priority === 'medium').length;
-  const low = exceptions.filter((row) => row.priority === 'low').length;
-  const oldestOpenHours =
-    exceptions.length === 0 ? null : Math.max(...exceptions.map((row) => row.ageHours));
   const latestQuoteDate = latestQuote?.latest ?? null;
   const dataCutoffAt = timestampToIso(latestFetch?.latest ?? null);
-  const inspectionDone = Boolean(inspectionRow);
-  const note =
-    inspectionRow?.configJson &&
-    typeof inspectionRow.configJson === 'object' &&
-    'note' in inspectionRow.configJson &&
-    typeof (inspectionRow.configJson as { note?: unknown }).note === 'string'
-      ? (inspectionRow.configJson as { note: string }).note
-      : null;
+  const lastCollectionRun = lastRunRow
+    ? {
+        id: lastRunRow.id,
+        status: lastRunRow.status,
+        triggeredBy: lastRunRow.jobCode,
+        finishedAt: timestampToIso(lastRunRow.finishedAt),
+      }
+    : null;
 
   const checklist: ChecklistItem[] = [
     {
       id: 'data-freshness',
-      label: '今日定档数据已发布',
+      label: '今日价格数据已发布',
       state: latestQuoteDate === today ? 'ok' : latestQuoteDate ? 'warn' : 'fail',
       detail: latestQuoteDate
-        ? `最新已发布定档日 ${latestQuoteDate}；数据抓取截止 ${dataCutoffAt ?? '—'}`
-        : '没有任何已发布定档报价',
+        ? `最新已发布价格日 ${latestQuoteDate}；数据抓取截止 ${dataCutoffAt ?? '—'}`
+        : '没有任何已发布价格',
     },
     {
       id: 'high-priority',
       label: '无未处理高优先级异常',
-      state: high === 0 ? 'ok' : 'fail',
-      detail: high === 0 ? '高优先级异常 0 条' : `高优先级异常 ${high} 条，需先处理`,
+      state: 'ok',
+      detail: 'v4 已删除异常队列；失败记录在 job_run.error，请到任务页查看',
     },
     {
       id: 'queue',
       label: '异常队列已巡检',
-      state: exceptions.length === 0 ? 'ok' : 'warn',
-      detail:
-        exceptions.length === 0
-          ? '开放异常 0 条'
-          : `开放异常 ${exceptions.length} 条（中 ${medium} / 低 ${low}），最久 ${oldestOpenHours ?? 0} 小时`,
+      state: 'ok',
+      detail: 'v4 已删除异常队列',
     },
     {
       id: 'source-anomaly',
-      label: '近 24h 无来源异常',
-      state: anomalyRows.length === 0 ? 'ok' : 'warn',
-      detail: anomalyRows.length === 0 ? '近 24h 无来源异常事件' : `近 24h ${anomalyRows.length} 条来源异常事件`,
-    },
-    {
-      id: 'fixture-label',
-      label: '来源署名 / 免责声明标识在线',
+      label: '近 24h 来源异常',
       state: 'ok',
-      detail:
-        '简报页展示「数据来源：国家统计局（流通领域重要生产资料市场价格）」+ 公报原文链接；存在 fixture 源时显示 FIXTURE 标识；页脚保留 BRIEF_DISCLAIMER_V1',
+      detail: 'v4 已删除 source_event；来源异常请查看 job_run.error',
     },
     {
       id: 'inspection-recorded',
       label: `今日巡检已记录（${today}，Asia/Shanghai）`,
-      state: inspectionDone ? 'ok' : 'warn',
-      detail: inspectionDone
-        ? `已由 ${inspectionRow?.triggeredBy ?? '—'} 于 ${timestampToIso(inspectionRow?.finishedAt ?? null) ?? '—'} 记录`
-        : '尚未记录今日巡检；单人运营每天点一次「记录今日巡检」',
+      state: 'warn',
+      detail: 'v4 巡检台账尚未实现，当前只能查看数据新鲜度',
     },
   ];
 
@@ -217,38 +151,20 @@ export async function loadOpsData(database: BeeDb = defaultDb, now: Date = new D
     generatedAt,
     latestQuoteDate,
     dataCutoffAt,
-    lastCollectionRun: lastCollection
-      ? {
-          id: lastCollection.id,
-          status: lastCollection.status,
-          triggeredBy: lastCollection.triggeredBy,
-          finishedAt: timestampToIso(lastCollection.finishedAt),
-        }
-      : null,
-    inspection: inspectionRow
-      ? {
-          id: inspectionRow.id,
-          finishedAt: timestampToIso(inspectionRow.finishedAt),
-          triggeredBy: inspectionRow.triggeredBy,
-          note,
-        }
-      : null,
-    exceptions,
-    sourceAnomalies: anomalyRows.map((row) => ({
-      id: row.id,
-      sourceName: row.sourceName,
-      detail: row.detail,
-      createdAt: timestampToIso(row.createdAt) ?? '',
-    })),
+    lastCollectionRun,
+    // v4 没有 maintenance 运行类型；巡检记录停用。
+    inspection: null,
+    exceptions: [],
+    sourceAnomalies: [],
     checklist,
     summary: {
-      open: exceptions.length,
-      high,
-      medium,
-      low,
-      oldestOpenHours,
-      inspectionDone,
-      readyToSignOff: inspectionDone && high === 0,
+      open: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      oldestOpenHours: null,
+      inspectionDone: false,
+      readyToSignOff: false,
     },
   };
 }

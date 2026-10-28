@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { dbSchema, type BeeDb } from '@bee/db';
+import { v4, type BeeDb } from '@bee/db';
 import { numericToNumber } from '@bee/core';
 import { db as defaultDb } from '../db';
 import {
@@ -56,24 +56,24 @@ export function seriesCutoff(latestQuoteDate: string | null): string | null {
 
 /**
  * 全库已发布报价的历史中值序列，按「品类×规格×地域×价类型」聚合（升序由调用方保证）。
- * 只查 daily_quote，不接受任何手写价格；行业问答与趋势推演共用这一条查询。
+ * v4 只查 price_daily；规格为空时以「品类级」入 key，仍可复用旧 key 组装方式。
  */
 export async function loadQuoteSeries(database: BeeDb = defaultDb): Promise<QuoteSeriesMap> {
   const seriesRows = await database
     .select({
-      id: dbSchema.dailyQuote.id,
-      categoryCode: dbSchema.category.code,
-      specName: dbSchema.specGrade.nameCn,
-      regionName: dbSchema.region.nameCn,
-      priceType: dbSchema.dailyQuote.priceType,
-      quoteDate: dbSchema.dailyQuote.quoteDate,
-      valueMid: dbSchema.dailyQuote.valueMid,
+      id: v4.priceDaily.id,
+      categoryCode: v4.category.code,
+      specName: v4.spec.name,
+      regionName: v4.region.name,
+      priceType: v4.priceDaily.priceType,
+      quoteDate: v4.priceDaily.priceDate,
+      valueMid: v4.priceDaily.valueMid,
     })
-    .from(dbSchema.dailyQuote)
-    .innerJoin(dbSchema.category, eq(dbSchema.dailyQuote.categoryId, dbSchema.category.id))
-    .innerJoin(dbSchema.specGrade, eq(dbSchema.dailyQuote.specId, dbSchema.specGrade.id))
-    .innerJoin(dbSchema.region, eq(dbSchema.dailyQuote.regionId, dbSchema.region.id))
-    .where(eq(dbSchema.dailyQuote.status, 'published'));
+    .from(v4.priceDaily)
+    .innerJoin(v4.category, eq(v4.priceDaily.categoryId, v4.category.id))
+    .leftJoin(v4.spec, eq(v4.priceDaily.specId, v4.spec.id))
+    .innerJoin(v4.region, eq(v4.priceDaily.regionId, v4.region.id))
+    .where(eq(v4.priceDaily.status, 'published'));
 
   const seriesByKey: QuoteSeriesMap = new Map();
   for (const row of seriesRows) {
@@ -81,7 +81,7 @@ export async function loadQuoteSeries(database: BeeDb = defaultDb): Promise<Quot
     if (value === null) continue;
     const key = quoteSeriesKey({
       categoryCode: row.categoryCode,
-      specName: row.specName,
+      specName: row.specName ?? '品类级',
       regionName: row.regionName,
       priceType: row.priceType,
     });

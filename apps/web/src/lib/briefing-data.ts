@@ -1,11 +1,13 @@
-import { and, eq, inArray, or, sql } from 'drizzle-orm';
-import { dbSchema, type BeeDb } from '@bee/db';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { v4, type BeeDb } from '@bee/db';
 import { numericToNumber, timestampToIso } from '@bee/core';
 import { db as defaultDb } from '../db';
 
-export type PriceType = 'purchase' | 'sale' | 'ex_works' | 'indicative';
+/** price_daily.price_type 的取值；market 是 v4 的默认价类型。 */
+export type PriceType = 'market' | 'purchase' | 'sale' | 'ex_works' | 'indicative';
 
 export const PRICE_TYPE_LABEL: Record<PriceType, string> = {
+  market: '市场价',
   purchase: '采购价',
   sale: '销售价',
   ex_works: '出厂价',
@@ -23,6 +25,7 @@ export const INDICATOR_KIND_LABEL: Record<string, string> = {
 export interface SourceRef {
   code: string;
   name: string;
+  /** v4 source 表没有可信权重列；这里保留旧契约字段，统一给 0 表示「未标定」。 */
   trustWeight: number;
   fetchedAt: string;
 }
@@ -124,32 +127,44 @@ function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * 旧 BriefingQuote.regionLevel 只允许 market/city。v4 地域可以是 global/country/province，
+ * 这里只做展示层归类，不改库里事实：city 保持 city，其余按 market 展示。
+ */
 function asRegionLevel(level: string): 'market' | 'city' {
-  if (level !== 'market' && level !== 'city') {
-    throw new Error(`daily_quote 只能挂在 market/city 地域：收到 ${level}`);
-  }
-  return level;
+  return level === 'city' ? 'city' : 'market';
 }
 
-function methodNote(methodJson: unknown): string {
-  if (methodJson && typeof methodJson === 'object' && 'note' in methodJson) {
-    const note = (methodJson as { note?: unknown }).note;
-    if (typeof note === 'string' && note.length > 0) return note;
+function asPriceType(value: string): PriceType {
+  if (
+    value === 'market' ||
+    value === 'purchase' ||
+    value === 'sale' ||
+    value === 'ex_works' ||
+    value === 'indicative'
+  ) {
+    return value;
   }
-  return '加工指标口径见 method_json（此条未提供人话版 note）。';
+  return 'market';
 }
 
+/**
+ * 简报数据层（v4）：品类来自 category，报价来自 price_daily 最新发布行。
+ *
+ * v4 没有加工指标表，indicators 恒为空数组；比较基数来自同组合的历史真实行。
+ * 不补点、不插值、不把缺失当作持平。
+ */
 export async function loadBriefing(database: BeeDb = defaultDb): Promise<BriefingData> {
   const generatedAt = new Date().toISOString();
   const categories = await database
     .select()
-    .from(dbSchema.category)
-    .orderBy(dbSchema.category.sortOrder);
+    .from(v4.category)
+    .orderBy(v4.category.sortOrder, v4.category.code);
 
   const [latestRow] = await database
-    .select({ latest: sql<string | null>`max(${dbSchema.dailyQuote.quoteDate})` })
-    .from(dbSchema.dailyQuote)
-    .where(eq(dbSchema.dailyQuote.status, 'published'));
+    .select({ latest: sql<string | null>`max(${v4.priceDaily.priceDate})` })
+    .from(v4.priceDaily)
+    .where(eq(v4.priceDaily.status, 'published'));
   const latestQuoteDate = latestRow?.latest ?? null;
 
   if (!latestQuoteDate) {
@@ -175,315 +190,183 @@ export async function loadBriefing(database: BeeDb = defaultDb): Promise<Briefin
         openExceptions: 0,
         highPriorityExceptions: 0,
       },
-      globalGaps: ['尚无已发布的定档报价：先运行 pnpm data:fixture 生成 P0-3 fixture 数据链'],
+      globalGaps: ['尚无已发布的定档报价：等待 v4 采集任务写入 price_daily'],
     };
   }
 
-  // 旬报锚点是 10 天频，日频 fixture 是最新交易日；两者必须同页共存。
-  // 日频只取全库最新日，锚点按「每个规格最新一期」取，避免旬价被日频日期挤掉。
-  const publishedQuoteRows = await database
-    .select({
-      id: dbSchema.dailyQuote.id,
-      categoryId: dbSchema.dailyQuote.categoryId,
-      categoryName: dbSchema.category.nameCn,
-      categorySort: dbSchema.category.sortOrder,
-      specName: dbSchema.specGrade.nameCn,
-      regionName: dbSchema.region.nameCn,
-      regionLevel: dbSchema.region.level,
-      regionCode: dbSchema.region.code,
-      quoteDate: dbSchema.dailyQuote.quoteDate,
-      priceType: dbSchema.dailyQuote.priceType,
-      valueLow: dbSchema.dailyQuote.valueLow,
-      valueHigh: dbSchema.dailyQuote.valueHigh,
-      valueMid: dbSchema.dailyQuote.valueMid,
-      method: dbSchema.dailyQuote.method,
-      methodVersion: dbSchema.dailyQuote.methodVersion,
-      confidence: dbSchema.dailyQuote.confidence,
-      coverageNote: dbSchema.dailyQuote.coverageNote,
-      status: dbSchema.dailyQuote.status,
-      contributingObservationIds: dbSchema.dailyQuote.contributingObservationIds,
-    })
-    .from(dbSchema.dailyQuote)
-    .innerJoin(dbSchema.category, eq(dbSchema.dailyQuote.categoryId, dbSchema.category.id))
-    .innerJoin(dbSchema.specGrade, eq(dbSchema.dailyQuote.specId, dbSchema.specGrade.id))
-    .innerJoin(dbSchema.region, eq(dbSchema.dailyQuote.regionId, dbSchema.region.id))
+  const selectQuote = {
+    id: v4.priceDaily.id,
+    categoryId: v4.priceDaily.categoryId,
+    categoryName: v4.category.nameCn,
+    categorySort: v4.category.sortOrder,
+    specName: v4.spec.name,
+    regionName: v4.region.name,
+    regionLevel: v4.region.level,
+    regionCode: v4.region.code,
+    quoteDate: v4.priceDaily.priceDate,
+    priceType: v4.priceDaily.priceType,
+    valueLow: v4.priceDaily.valueLow,
+    valueHigh: v4.priceDaily.valueHigh,
+    valueMid: v4.priceDaily.valueMid,
+    unit: v4.priceDaily.unit,
+    currency: v4.priceDaily.currency,
+    note: v4.priceDaily.note,
+    status: v4.priceDaily.status,
+    sourceId: v4.priceDaily.sourceId,
+    sourceCode: v4.source.code,
+    sourceName: v4.source.name,
+    rawUrl: v4.priceDaily.rawUrl,
+    capturedAt: v4.priceDaily.capturedAt,
+  } as const;
+
+  const baseQuery = () =>
+    database
+      .select(selectQuote)
+      .from(v4.priceDaily)
+      .innerJoin(v4.category, eq(v4.category.id, v4.priceDaily.categoryId))
+      .leftJoin(v4.spec, eq(v4.spec.id, v4.priceDaily.specId))
+      .innerJoin(v4.region, eq(v4.region.id, v4.priceDaily.regionId))
+      .leftJoin(v4.source, eq(v4.source.id, v4.priceDaily.sourceId));
+
+  const publishedQuoteRows = await baseQuery()
     .where(
       and(
-        eq(dbSchema.dailyQuote.status, 'published'),
-        or(
-          eq(dbSchema.dailyQuote.quoteDate, latestQuoteDate),
-          eq(dbSchema.region.code, 'stats-national-reference'),
-        ),
+        eq(v4.priceDaily.status, 'published'),
+        eq(v4.priceDaily.priceDate, latestQuoteDate),
       ),
     )
     .orderBy(
-      dbSchema.dailyQuote.quoteDate,
-      dbSchema.category.sortOrder,
-      dbSchema.specGrade.sortOrder,
-      dbSchema.region.nameCn,
+      v4.category.sortOrder,
+      v4.spec.name,
+      v4.region.name,
+      v4.priceDaily.priceType,
     );
 
-  const quoteRows: typeof publishedQuoteRows = [];
-  const seenAnchorSpecs = new Set<string>();
-  for (const row of [...publishedQuoteRows].reverse()) {
-    if (row.regionCode !== 'stats-national-reference') {
-      quoteRows.push(row);
-      continue;
-    }
-    const anchorKey = [row.categoryId, row.specName, row.priceType].join('|');
-    if (seenAnchorSpecs.has(anchorKey)) continue;
-    seenAnchorSpecs.add(anchorKey);
-    quoteRows.push(row);
-  }
-  quoteRows.sort((a, b) => {
-    if (a.categorySort !== b.categorySort) return a.categorySort - b.categorySort;
-    const specA = a.specName.localeCompare(b.specName);
-    if (specA !== 0) return specA;
-    return a.regionName.localeCompare(b.regionName);
-  });
+  // 历史只用于算「较上一交易日」「较上周」；不渲染旧日整行。
+  const historyRows = await baseQuery().where(eq(v4.priceDaily.status, 'published'));
 
-  const observationIds = quoteRows.flatMap((quote) => quote.contributingObservationIds);
-  const observationRows =
-    observationIds.length === 0
-      ? []
-      : await database
-          .select({
-            observationId: dbSchema.priceObservation.id,
-            sourceId: dbSchema.priceObservation.sourceId,
-            fetchId: dbSchema.priceObservation.fetchId,
-            sourceCode: dbSchema.source.code,
-            sourceName: dbSchema.source.name,
-            trustWeight: dbSchema.source.trustWeight,
-            fetchedAt: dbSchema.priceObservation.fetchedAt,
-          })
-          .from(dbSchema.priceObservation)
-          .innerJoin(dbSchema.source, eq(dbSchema.priceObservation.sourceId, dbSchema.source.id))
-          .where(inArray(dbSchema.priceObservation.id, observationIds));
-
-  const usedSourceIds = [...new Set(observationRows.map((row) => row.sourceId))];
-  const usedFetchIds = [...new Set(observationRows.map((row) => row.fetchId))];
-  const sourceRows =
-    usedSourceIds.length === 0
-      ? []
-      : await database
-          .select({
-            id: dbSchema.source.id,
-            code: dbSchema.source.code,
-            name: dbSchema.source.name,
-            baseUrl: dbSchema.source.baseUrl,
-            tosUrl: dbSchema.source.tosUrl,
-          })
-          .from(dbSchema.source)
-          .where(inArray(dbSchema.source.id, usedSourceIds));
-  const fetchRows =
-    usedFetchIds.length === 0
-      ? []
-      : await database
-          .select({
-            id: dbSchema.rawFetch.id,
-            sourceId: dbSchema.rawFetch.sourceId,
-            url: dbSchema.rawFetch.url,
-            fetchedAt: dbSchema.rawFetch.fetchedAt,
-          })
-          .from(dbSchema.rawFetch)
-          .where(inArray(dbSchema.rawFetch.id, usedFetchIds));
-
-  const latestFetchBySource = new Map<string, { url: string; fetchedAt: string }>();
-  for (const row of fetchRows) {
-    const fetchedAt = timestampToIso(row.fetchedAt);
-    if (!fetchedAt) continue;
-    const current = latestFetchBySource.get(row.sourceId);
-    if (!current || fetchedAt > current.fetchedAt) {
-      latestFetchBySource.set(row.sourceId, { url: row.url, fetchedAt });
-    }
-  }
-  const sources: BriefingSourceInfo[] = sourceRows
-    .map((row) => ({
-      code: row.code,
-      name: row.name,
-      baseUrl: row.baseUrl,
-      tosUrl: row.tosUrl,
-      latestFetchUrl: latestFetchBySource.get(row.id)?.url ?? null,
-    }))
-    .sort((a, b) => a.code.localeCompare(b.code));
-
-  const observationById = new Map(observationRows.map((row) => [row.observationId, row]));
-  let dataCutoffAt: string | null = null;
-  for (const row of observationRows) {
-    const iso = timestampToIso(row.fetchedAt);
-    if (iso && (!dataCutoffAt || iso > dataCutoffAt)) dataCutoffAt = iso;
-  }
-
-  // 历史定档只用于计算「较上一交易日」「较上周」；不渲染旧日整行，避免误导为今日报价。
-  const historyRows = await database
-    .select({
-      id: dbSchema.dailyQuote.id,
-      categoryId: dbSchema.dailyQuote.categoryId,
-      specName: dbSchema.specGrade.nameCn,
-      regionName: dbSchema.region.nameCn,
-      quoteDate: dbSchema.dailyQuote.quoteDate,
-      priceType: dbSchema.dailyQuote.priceType,
-      valueMid: dbSchema.dailyQuote.valueMid,
-    })
-    .from(dbSchema.dailyQuote)
-    .innerJoin(dbSchema.specGrade, eq(dbSchema.dailyQuote.specId, dbSchema.specGrade.id))
-    .innerJoin(dbSchema.region, eq(dbSchema.dailyQuote.regionId, dbSchema.region.id))
-    .where(eq(dbSchema.dailyQuote.status, 'published'));
-
-  const historyByKey = new Map<string, typeof historyRows>();
+  const historyByKey = new Map<string, Array<(typeof historyRows)[number]>>();
   for (const row of historyRows) {
-    const key = [row.categoryId, row.specName, row.regionName, row.priceType].join('|');
+    const key = [row.categoryId, row.specName ?? '', row.regionName, row.priceType].join('|');
     const list = historyByKey.get(key) ?? [];
     list.push(row);
     historyByKey.set(key, list);
   }
 
-  const quotes: BriefingQuote[] = quoteRows.map((quote) => {
-    const key = [quote.categoryId, quote.specName, quote.regionName, quote.priceType].join('|');
+  const sources: BriefingSourceInfo[] = [];
+  const sourceIds = [...new Set(publishedQuoteRows.map((row) => row.sourceId).filter((id): id is string => id !== null))];
+  if (sourceIds.length > 0) {
+    const sourceRows = await database
+      .select({
+        id: v4.source.id,
+        code: v4.source.code,
+        name: v4.source.name,
+        baseUrl: v4.source.baseUrl,
+      })
+      .from(v4.source)
+      .where(inArray(v4.source.id, sourceIds));
+
+    const latestFetchBySource = new Map<string, { url: string | null; at: string }>();
+    for (const row of publishedQuoteRows) {
+      if (!row.sourceId) continue;
+      const at = timestampToIso(row.capturedAt) ?? '';
+      const current = latestFetchBySource.get(row.sourceId);
+      if (!current || at > current.at) {
+        latestFetchBySource.set(row.sourceId, { url: row.rawUrl, at });
+      }
+    }
+
+    for (const source of sourceRows) {
+      sources.push({
+        code: source.code,
+        name: source.name,
+        baseUrl: source.baseUrl,
+        tosUrl: null,
+        latestFetchUrl: latestFetchBySource.get(source.id)?.url ?? null,
+      });
+    }
+    sources.sort((a, b) => a.code.localeCompare(b.code));
+  }
+
+  let dataCutoffAt: string | null = null;
+  for (const row of publishedQuoteRows) {
+    const iso = timestampToIso(row.capturedAt);
+    if (iso && (!dataCutoffAt || iso > dataCutoffAt)) dataCutoffAt = iso;
+  }
+
+  const quotes: BriefingQuote[] = publishedQuoteRows.map((quote) => {
+    const specName = quote.specName ?? '品类级';
+    const key = [quote.categoryId, quote.specName ?? '', quote.regionName, quote.priceType].join('|');
     const history = (historyByKey.get(key) ?? [])
       .filter((row) => row.quoteDate < quote.quoteDate)
       .sort((a, b) => (a.quoteDate < b.quoteDate ? 1 : -1));
     const previous = history[0] ?? null;
     const weekAgoDate = addDays(quote.quoteDate, -7);
     const weekAgo = history.find((row) => row.quoteDate === weekAgoDate) ?? null;
-    const currentMid = numericToNumber(quote.valueMid);
-    if (currentMid === null) throw new Error(`daily_quote ${quote.id} value_mid 不可解析`);
+    const currentMid = numericToNumber(quote.valueMid) ?? 0;
+    const previousMid = previous ? numericToNumber(previous.valueMid) : null;
+    const weekAgoMid = weekAgo ? numericToNumber(weekAgo.valueMid) : null;
 
-    const sources = new Map<string, SourceRef>();
-    for (const observationId of quote.contributingObservationIds) {
-      const observation = observationById.get(observationId);
-      if (!observation) throw new Error(`daily_quote ${quote.id} 引用了不存在的观测 ${observationId}`);
-      const fetchedAt = timestampToIso(observation.fetchedAt);
-      if (!fetchedAt) throw new Error(`观测 ${observationId} 缺少抓取时间`);
-      const trustWeight = numericToNumber(observation.trustWeight);
-      if (trustWeight === null) throw new Error(`来源 ${observation.sourceCode} 缺少可信权重`);
-      sources.set(observation.sourceCode, {
-        code: observation.sourceCode,
-        name: observation.sourceName,
-        trustWeight,
-        fetchedAt,
-      });
-    }
-    const sourceList = [...sources.values()].sort((a, b) => a.code.localeCompare(b.code));
-    const fetchTimes = sourceList.map((source) => source.fetchedAt).sort();
+    const fetchedAt = timestampToIso(quote.capturedAt);
+    const sourceList: SourceRef[] = quote.sourceCode
+      ? [{ code: quote.sourceCode, name: quote.sourceName ?? quote.sourceCode, trustWeight: 0, fetchedAt: fetchedAt ?? '' }]
+      : [];
 
     return {
       id: quote.id,
       categoryId: quote.categoryId,
       categoryName: quote.categoryName,
-      specName: quote.specName,
+      specName,
       regionName: quote.regionName,
       regionLevel: asRegionLevel(quote.regionLevel),
       quoteDate: quote.quoteDate,
-      priceType: quote.priceType,
-      valueLow: numericToNumber(quote.valueLow) ?? 0,
-      valueHigh: numericToNumber(quote.valueHigh) ?? 0,
+      priceType: asPriceType(quote.priceType),
+      valueLow: numericToNumber(quote.valueLow) ?? currentMid,
+      valueHigh: numericToNumber(quote.valueHigh) ?? currentMid,
       valueMid: currentMid,
-      method: quote.method,
-      methodVersion: quote.methodVersion,
-      confidence: quote.confidence,
-      coverageNote: quote.coverageNote,
+      // v4 是来源直发，没有多源定档与版本链；旧字段用明确默认值。
+      method: '单源直取',
+      methodVersion: 'v4',
+      confidence: 'medium',
+      coverageNote: quote.note,
       status: quote.status,
-      fetchedFrom: fetchTimes[0] ?? null,
-      fetchedTo: fetchTimes[fetchTimes.length - 1] ?? null,
+      fetchedFrom: fetchedAt,
+      fetchedTo: fetchedAt,
       sources: sourceList,
-      previousTradingDay: previous
-        ? {
-            quoteDate: previous.quoteDate,
-            previousValue: numericToNumber(previous.valueMid) ?? 0,
-            pct: changePct(currentMid, numericToNumber(previous.valueMid) ?? 0),
-          }
-        : null,
-      weekAgo: weekAgo
-        ? {
-            quoteDate: weekAgo.quoteDate,
-            previousValue: numericToNumber(weekAgo.valueMid) ?? 0,
-            pct: changePct(currentMid, numericToNumber(weekAgo.valueMid) ?? 0),
-          }
-        : null,
+      previousTradingDay:
+        previous && previousMid !== null
+          ? {
+              quoteDate: previous.quoteDate,
+              previousValue: previousMid,
+              pct: changePct(currentMid, previousMid),
+            }
+          : null,
+      weekAgo:
+        weekAgo && weekAgoMid !== null
+          ? {
+              quoteDate: weekAgo.quoteDate,
+              previousValue: weekAgoMid,
+              pct: changePct(currentMid, weekAgoMid),
+            }
+          : null,
     };
   });
-
-  const quoteIds = quotes.map((quote) => quote.id);
-  const basisDates = [...new Set(quoteRows.map((quote) => quote.quoteDate))];
-  const indicatorRows = await database
-    .select({
-      id: dbSchema.derivedIndicator.id,
-      kind: dbSchema.derivedIndicator.kind,
-      categoryId: dbSchema.derivedIndicator.categoryId,
-      categoryName: dbSchema.category.nameCn,
-      regionName: dbSchema.region.nameCn,
-      basisDate: dbSchema.derivedIndicator.basisDate,
-      value: dbSchema.derivedIndicator.value,
-      methodJson: dbSchema.derivedIndicator.methodJson,
-      methodVersion: dbSchema.derivedIndicator.methodVersion,
-    })
-    .from(dbSchema.derivedIndicator)
-    .innerJoin(dbSchema.category, eq(dbSchema.derivedIndicator.categoryId, dbSchema.category.id))
-    .innerJoin(dbSchema.region, eq(dbSchema.derivedIndicator.regionId, dbSchema.region.id))
-    .where(inArray(dbSchema.derivedIndicator.basisDate, basisDates))
-    .orderBy(dbSchema.category.sortOrder);
-
-  const indicatorIds = indicatorRows.map((row) => row.id);
-  const contributionRows =
-    indicatorIds.length === 0
-      ? []
-      : await database
-          .select({
-            indicatorId: dbSchema.indicatorContribution.indicatorId,
-            quoteId: dbSchema.indicatorContribution.quoteId,
-          })
-          .from(dbSchema.indicatorContribution)
-          .where(inArray(dbSchema.indicatorContribution.indicatorId, indicatorIds));
-
-  const contributionsByIndicator = new Map<string, string[]>();
-  for (const row of contributionRows) {
-    const list = contributionsByIndicator.get(row.indicatorId) ?? [];
-    list.push(row.quoteId);
-    contributionsByIndicator.set(row.indicatorId, list);
-  }
-
-  const indicators: BriefingIndicator[] = indicatorRows.map((row) => {
-    const quoteIdsForIndicator = contributionsByIndicator.get(row.id) ?? [];
-    return {
-      id: row.id,
-      kind: row.kind,
-      kindLabel: INDICATOR_KIND_LABEL[row.kind] ?? row.kind,
-      categoryName: row.categoryName,
-      regionName: row.regionName,
-      basisDate: row.basisDate,
-      value: numericToNumber(row.value) ?? 0,
-      methodNote: methodNote(row.methodJson),
-      methodVersion: row.methodVersion,
-      contributionCount: quoteIdsForIndicator.length,
-      contributingQuoteIds: quoteIdsForIndicator,
-    };
-  });
-
-  const openExceptions = await database
-    .select({ id: dbSchema.exceptionQueue.id, priority: dbSchema.exceptionQueue.priority })
-    .from(dbSchema.exceptionQueue)
-    .where(eq(dbSchema.exceptionQueue.status, 'open'));
 
   const categoriesView: BriefingCategory[] = categories.map((category) => {
     const categoryQuotes = quotes.filter((quote) => quote.categoryId === category.id);
-    const categoryIndicators = indicators.filter((indicator) => {
-      const row = indicatorRows.find((candidate) => candidate.id === indicator.id);
-      return row?.categoryId === category.id;
-    });
     const sources = new Set(categoryQuotes.flatMap((quote) => quote.sources.map((source) => source.code)));
     const regions = new Set(categoryQuotes.map((quote) => quote.regionName));
     const specs = new Set(categoryQuotes.map((quote) => quote.specName));
     const gaps: string[] = [];
     if (categoryQuotes.length === 0) gaps.push('今日无已发布报价');
     if (categoryQuotes.some((quote) => quote.confidence === 'low')) gaps.push('存在低置信度报价');
-    if (categoryQuotes.some((quote) => quote.sources.length === 0)) gaps.push('存在无来源报价（不应发布）');
+    if (categoryQuotes.some((quote) => quote.sources.length === 0)) gaps.push('存在无来源报价');
     return {
       id: category.id,
       code: category.code,
       name: category.nameCn,
       quotes: categoryQuotes,
-      indicators: categoryIndicators,
+      indicators: [],
       coverage: {
         regions: regions.size,
         sources: sources.size,
@@ -501,12 +384,10 @@ export async function loadBriefing(database: BeeDb = defaultDb): Promise<Briefin
     if (category.quotes.length === 0) globalGaps.push(`${category.name}：今日无已发布报价`);
   }
   if (quotes.length === 0) globalGaps.push('今日没有任何已发布定档报价');
-  if (openExceptions.length > 0) globalGaps.push(`异常队列有 ${openExceptions.length} 条待处理（不进简报）`);
   if (quotes.some((quote) => quote.coverageNote?.includes('区域分档暂缺'))) {
-    globalGaps.push('区域分档暂缺：统计局旬价是全国参考锚点，不能替代各地废料分档现货价');
+    globalGaps.push('区域分档暂缺：全国参考锚点不能替代各地分档现货价');
   }
 
-  void quoteIds;
   return {
     generatedAt,
     latestQuoteDate,
@@ -518,8 +399,9 @@ export async function loadBriefing(database: BeeDb = defaultDb): Promise<Briefin
       categoriesWithQuotes,
       quoteCount: quotes.length,
       sourceCount: allSources.size,
-      openExceptions: openExceptions.length,
-      highPriorityExceptions: openExceptions.filter((row) => row.priority === 'high').length,
+      // 异常队列在 v4 已删除；失败落在 job_run.error。
+      openExceptions: 0,
+      highPriorityExceptions: 0,
     },
     globalGaps,
   };

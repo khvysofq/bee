@@ -1,5 +1,5 @@
 import { and, desc, eq } from 'drizzle-orm';
-import { dbSchema, type BeeDb } from '@bee/db';
+import { v4, type BeeDb } from '@bee/db';
 import { nextCronRun } from '@bee/jobs/cron';
 import { nextRandomRun } from '@bee/jobs/schedule-window';
 import { todayInShanghai } from '@bee/jobs/validator';
@@ -7,13 +7,77 @@ import { todayInShanghai } from '@bee/jobs/validator';
 const DEFAULT_TZ = 'Asia/Shanghai';
 
 /**
- * /internal/jobs 的只读数据装配。管理页与管理 API 共用，避免两处口径漂移。
- * 全部读数来自库；「下次执行」由 job_def.schedule 计算，停用即为空。
+ * /internal/jobs 的只读数据装配（v4）。
+ *
+ * 任务定义来自 `job`，运行记录来自 `job_run`；v4 已删除候选表，候选列表恒为空。
+ * 「下次执行」由 job.schedule 计算，停用即为空。
  */
 
-export type JobDefRow = typeof dbSchema.jobDef.$inferSelect;
-export type JobRunRow = typeof dbSchema.jobRun.$inferSelect;
-export type CandidateRow = typeof dbSchema.ingestCandidate.$inferSelect;
+/**
+ * 管理页视图模型：保留旧页面的字段名以复用现有组件。
+ * `type` 是 `kind` 的展示别名；v4 没有的字段（tier / target / limits 等）
+ * 从 `config` 里取，取不到就给显式中性默认值，不伪造运行数据。
+ */
+export interface JobDefRow {
+  id: string;
+  code: string;
+  type: string;
+  tier: string;
+  target: Record<string, unknown>;
+  goal: string;
+  adapter: string | null;
+  outputSchema: unknown;
+  mapping: Record<string, unknown>;
+  schedule: unknown;
+  limits: Record<string, unknown>;
+  agent: unknown;
+  policy: unknown;
+  priority: number;
+  enabled: boolean;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  /** v4 原生字段（旧测试 fixture 可不提供）。 */
+  kind?: string;
+  config?: unknown;
+  lastRunAt?: Date | null;
+}
+
+export interface JobRunRow {
+  id: string;
+  jobCode: string;
+  scheduledFor: Date | null;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+  status: string;
+  attempt: number;
+  workerId: string | null;
+  tierUsed: string;
+  costMs: number | null;
+  costTokens: number;
+  fetchedBytes: number | null;
+  httpStatus: number | null;
+  errorCode: string | null;
+  errorDetail: string | null;
+  nextRetryAt: Date | null;
+  createdAt: Date;
+}
+
+/** v4 已删除候选表；类型保留给管理页的空态分支。 */
+export interface CandidateRow {
+  id: string;
+  jobRunId: string;
+  kind: string;
+  payload: unknown;
+  schemaOk: boolean;
+  dedupeKey: string;
+  evidenceRef: unknown;
+  status: string;
+  rejectReason: string | null;
+  validatorVersion: string;
+  acceptedRowId: string | null;
+  createdAt: Date;
+}
 
 export interface JobWithStats {
   definition: JobDefRow;
@@ -37,6 +101,20 @@ export interface JobsData {
   candidates: CandidateRow[];
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 function scheduleOf(job: JobDefRow): {
   mode?: string;
   cron?: string;
@@ -45,16 +123,68 @@ function scheduleOf(job: JobDefRow): {
   windowStart?: string;
   windowEnd?: string;
 } {
-  return (
-    (job.schedule as {
-      mode?: string;
-      cron?: string;
-      tz?: string;
-      enabled?: boolean;
-      windowStart?: string;
-      windowEnd?: string;
-    } | null) ?? {}
-  );
+  return asRecord(job.schedule) as {
+    mode?: string;
+    cron?: string;
+    tz?: string;
+    enabled?: boolean;
+    windowStart?: string;
+    windowEnd?: string;
+  };
+}
+
+function toJobDefRow(row: typeof v4.job.$inferSelect): JobDefRow {
+  const config = asRecord(row.config);
+  return {
+    id: row.id,
+    code: row.code,
+    type: row.kind,
+    tier: typeof config.tier === 'string' ? config.tier : '—',
+    target: asRecord(config.target),
+    goal: typeof config.goal === 'string' ? config.goal : '',
+    adapter: stringOrNull(config.adapter),
+    outputSchema: null,
+    mapping: asRecord(config.mapping),
+    schedule: row.schedule,
+    limits: asRecord(config.limits),
+    agent: config.agent ?? null,
+    policy: config.policy ?? null,
+    priority: numberOrNull(config.priority) ?? 5,
+    enabled: row.enabled,
+    notes: stringOrNull(config.notes),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    kind: row.kind,
+    config: row.config,
+    lastRunAt: row.lastRunAt,
+  };
+}
+
+function toJobRunRow(run: typeof v4.jobRun.$inferSelect, jobCode: string): JobRunRow {
+  const stats = asRecord(run.stats);
+  const costMs =
+    run.startedAt && run.finishedAt
+      ? Math.max(0, run.finishedAt.getTime() - run.startedAt.getTime())
+      : null;
+  return {
+    id: run.id,
+    jobCode,
+    scheduledFor: run.scheduledFor,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    status: run.status,
+    attempt: run.attempt,
+    workerId: stringOrNull(stats.worker_id),
+    tierUsed: typeof stats.tier_used === 'string' ? stats.tier_used : '—',
+    costMs,
+    costTokens: numberOrNull(stats.cost_tokens) ?? 0,
+    fetchedBytes: numberOrNull(stats.fetched_bytes),
+    httpStatus: numberOrNull(stats.http_status),
+    errorCode: stringOrNull(stats.error_code),
+    errorDetail: run.error,
+    nextRetryAt: null,
+    createdAt: run.createdAt,
+  };
 }
 
 export function nextRunFor(job: JobDefRow, now: Date = new Date()): Date | null {
@@ -89,18 +219,18 @@ export async function loadJobsData(
   const now = options.now ?? new Date();
   const today = todayInShanghai(now);
   const startOfToday = new Date(`${today}T00:00:00+08:00`);
+  void options.candidateLimit;
 
-  const definitions = await db.select().from(dbSchema.jobDef).orderBy(dbSchema.jobDef.code);
-  const runs = await db
-    .select()
-    .from(dbSchema.jobRun)
-    .orderBy(desc(dbSchema.jobRun.startedAt), desc(dbSchema.jobRun.createdAt))
+  const definitionRows = await db.select().from(v4.job).orderBy(v4.job.code);
+  const runRows = await db
+    .select({ run: v4.jobRun, jobCode: v4.job.code })
+    .from(v4.jobRun)
+    .innerJoin(v4.job, eq(v4.job.id, v4.jobRun.jobId))
+    .orderBy(desc(v4.jobRun.startedAt), desc(v4.jobRun.createdAt))
     .limit(options.runLimit ?? 500);
-  const candidates = await db
-    .select()
-    .from(dbSchema.ingestCandidate)
-    .orderBy(desc(dbSchema.ingestCandidate.createdAt))
-    .limit(options.candidateLimit ?? 200);
+
+  const definitions = definitionRows.map(toJobDefRow);
+  const runs = runRows.map((row) => toJobRunRow(row.run, row.jobCode));
 
   const runsByJob = new Map<string, JobRunRow[]>();
   for (const run of runs) {
@@ -133,11 +263,12 @@ export async function loadJobsData(
       total: definitions.length,
       enabled: definitions.filter((job) => job.enabled).length,
       todayRuns: todayRuns.length,
-      todayFailed: todayRuns.filter((run) => run.status === 'failed' || run.status === 'dead').length,
+      todayFailed: todayRuns.filter((run) => run.status === 'failed').length,
     },
     jobs,
     runs,
-    candidates,
+    // v4 已删除候选表。
+    candidates: [],
   };
 }
 
@@ -146,39 +277,26 @@ export async function loadJobRuns(
   filters: { job?: string; status?: string; limit?: number },
 ): Promise<JobRunRow[]> {
   const limit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
-  const base = db.select().from(dbSchema.jobRun);
-  if (filters.job && filters.status) {
-    return base
-      .where(and(eq(dbSchema.jobRun.jobCode, filters.job), eq(dbSchema.jobRun.status, filters.status)))
-      .orderBy(desc(dbSchema.jobRun.startedAt), desc(dbSchema.jobRun.createdAt))
-      .limit(limit);
-  }
-  if (filters.job) {
-    return base
-      .where(eq(dbSchema.jobRun.jobCode, filters.job))
-      .orderBy(desc(dbSchema.jobRun.startedAt), desc(dbSchema.jobRun.createdAt))
-      .limit(limit);
-  }
-  if (filters.status) {
-    return base
-      .where(eq(dbSchema.jobRun.status, filters.status))
-      .orderBy(desc(dbSchema.jobRun.startedAt), desc(dbSchema.jobRun.createdAt))
-      .limit(limit);
-  }
-  return base.orderBy(desc(dbSchema.jobRun.startedAt), desc(dbSchema.jobRun.createdAt)).limit(limit);
+  const conditions: ReturnType<typeof eq>[] = [];
+  if (filters.job) conditions.push(eq(v4.job.code, filters.job));
+  if (filters.status) conditions.push(eq(v4.jobRun.status, filters.status));
+
+  const query = db
+    .select({ run: v4.jobRun, jobCode: v4.job.code })
+    .from(v4.jobRun)
+    .innerJoin(v4.job, eq(v4.job.id, v4.jobRun.jobId));
+
+  const rows = await (conditions.length > 0 ? query.where(and(...conditions)) : query)
+    .orderBy(desc(v4.jobRun.startedAt), desc(v4.jobRun.createdAt))
+    .limit(limit);
+
+  return rows.map((row) => toJobRunRow(row.run, row.jobCode));
 }
 
 export async function loadCandidates(
-  db: BeeDb,
-  filters: { status?: string; limit?: number },
+  _db: BeeDb,
+  _filters: { status?: string; limit?: number },
 ): Promise<CandidateRow[]> {
-  const limit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
-  const base = db.select().from(dbSchema.ingestCandidate);
-  if (filters.status) {
-    return base
-      .where(eq(dbSchema.ingestCandidate.status, filters.status))
-      .orderBy(desc(dbSchema.ingestCandidate.createdAt))
-      .limit(limit);
-  }
-  return base.orderBy(desc(dbSchema.ingestCandidate.createdAt)).limit(limit);
+  // v4 已删除 ingest_candidate：worker 只写 price_daily / content。
+  return [];
 }

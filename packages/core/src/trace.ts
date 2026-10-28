@@ -63,7 +63,7 @@ export const traceQuoteResponseSchema = z.object({
     regionName: z.string(),
     regionLevel: z.enum(['market', 'city']),
     quoteDate: z.string(),
-    priceType: z.enum(['purchase', 'sale', 'ex_works', 'indicative']),
+    priceType: z.enum(['market', 'purchase', 'sale', 'ex_works', 'indicative']),
     valueLow: z.number(),
     valueHigh: z.number(),
     valueMid: z.number(),
