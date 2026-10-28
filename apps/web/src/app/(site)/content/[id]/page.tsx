@@ -15,6 +15,18 @@ const KIND_LABEL: Record<string, string> = {
   news_item: '新闻',
 };
 
+/** 正文开头若与页面标题重复（生成时写了同名 H1），去掉，避免标题出现两次。 */
+function stripLeadingTitle(markdown: string, title: string): string {
+  const lines = markdown.split('\n');
+  const index = lines.findIndex((line) => line.trim().startsWith('# '));
+  if (index < 0 || index > 8) return markdown;
+  const heading = lines[index]!.replace(/^#\s+/, '').trim();
+  if (heading !== title && !heading.includes(title)) return markdown;
+  lines.splice(index, 1);
+  if (lines[index]?.trim() === '') lines.splice(index, 1);
+  return lines.join('\n');
+}
+
 /** 内容阅读页：/content/<id>，正文从 Garage / S3 的 Markdown 对象读取。 */
 export default async function ContentPage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
@@ -39,7 +51,7 @@ export default async function ContentPage(props: { params: Promise<{ id: string 
   if (!detail) notFound();
 
   const markdown = await readMarkdown(detail.bodyMdKey);
-  const body = markdown ? stripFrontmatter(markdown) : null;
+  const body = markdown ? stripLeadingTitle(stripFrontmatter(markdown), detail.title) : null;
 
   return (
     <>
