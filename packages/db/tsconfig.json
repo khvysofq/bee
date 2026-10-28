@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["src", "scripts", "tests", "drizzle.config.ts"]
+  "include": ["src", "scripts", "tests", "drizzle.config.ts", "drizzle.v4.config.ts"]
 }

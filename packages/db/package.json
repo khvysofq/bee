@@ -8,8 +8,11 @@
   },
   "scripts": {
     "generate": "drizzle-kit generate",
+    "generate:v4": "drizzle-kit generate --config drizzle.v4.config.ts",
     "migrate": "tsx scripts/migrate.ts",
+    "migrate:v4": "tsx scripts/migrate-v4.ts",
     "seed": "tsx scripts/seed.ts",
+    "seed:v4": "tsx scripts/seed-v4.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
