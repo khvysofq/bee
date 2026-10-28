@@ -1,5 +1,5 @@
 /**
- * v4 种子：3 品类 + 36 地域 + 12 规格 + 2 来源 + 2 任务。幂等（on conflict do update）。
+ * v4 种子：3 品类 + 36 地域 + 12 规格 + 3 来源 + 6 任务。幂等（on conflict do update）。
  *
  * 不种子价格/文档 —— 价格必须来自真实采集，文档来自真实内容生产。
  * 任务默认停用（schedule.enabled=false），避免种子一执行就自动外呼。
@@ -65,6 +65,15 @@ const SOURCES = [
     redistribution: 'internal_only',
     enabled: true,
   },
+  {
+    code: 'demo-news',
+    name: '离线新闻样例',
+    type: 'news',
+    baseUrl: 'fixture://news-copper-sample.html',
+    robotsStatus: 'allowed',
+    redistribution: 'licensed',
+    enabled: true,
+  },
 ] as const;
 
 const JOBS = [
@@ -108,6 +117,46 @@ const JOBS = [
     },
     // 不自动外呼：需要人工确认来源可用后再启用。
     enabled: false,
+  },
+  {
+    code: 'demo.news.copper',
+    category: '1110201',
+    source: 'demo-news',
+    kind: 'fetch_news',
+    config: {
+      target: { url: 'fixture://news-copper-sample.html' },
+      content_date: '2026-10-26',
+      adapter: 'readability-v1',
+    },
+    schedule: { cron: '20 8 * * *', tz: 'Asia/Shanghai', enabled: false },
+    enabled: true,
+  },
+  {
+    code: 'demo.digest.copper',
+    category: '1110201',
+    source: null,
+    kind: 'digest',
+    config: { content_date: '2026-10-26' },
+    schedule: { cron: '0 9 * * *', tz: 'Asia/Shanghai', enabled: false },
+    enabled: true,
+  },
+  {
+    code: 'demo.analysis.copper',
+    category: '1110201',
+    source: null,
+    kind: 'analysis',
+    config: { lookback_days: 30 },
+    schedule: { cron: '15 9 * * *', tz: 'Asia/Shanghai', enabled: false },
+    enabled: true,
+  },
+  {
+    code: 'demo.forecast.copper',
+    category: '1110201',
+    source: null,
+    kind: 'forecast',
+    config: { horizon_days: 7 },
+    schedule: { cron: '30 9 * * 1', tz: 'Asia/Shanghai', enabled: false },
+    enabled: true,
   },
 ] as const;
 
@@ -246,8 +295,9 @@ async function main() {
     for (const j of JOBS) {
       const categoryId = catIdByCode.get(j.category);
       if (!categoryId) throw new Error(`任务 ${j.code} 缺少品类 ${j.category}`);
-      const sourceId = sourceIdByCode.get(j.source);
-      if (!sourceId) throw new Error(`任务 ${j.code} 缺少来源 ${j.source}`);
+      // 生成类任务（digest/analysis/forecast）不绑定新闻/价格来源。
+      const sourceId = j.source === null ? null : sourceIdByCode.get(j.source);
+      if (j.source !== null && !sourceId) throw new Error(`任务 ${j.code} 缺少来源 ${j.source}`);
       await tx
         .insert(v4.job)
         .values({
@@ -275,7 +325,7 @@ async function main() {
   });
 
   await pool.end();
-  console.log('v4 种子完成：3 品类 / 36 地域 / 12 规格 / 2 来源 / 2 任务。');
+  console.log('v4 种子完成：3 品类 / 36 地域 / 12 规格 / 3 来源 / 6 任务。');
   process.exit(0);
 }
 
