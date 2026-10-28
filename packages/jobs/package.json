@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "jobs:scheduler": "tsx src/run-scheduler.ts",
     "jobs:worker": "tsx src/run-worker.ts",
-    "jobs:seed": "tsx src/seed-demo.ts"
+    "jobs:seed": "tsx src/seed-demo.ts",
+    "run:price": "tsx src/run-price-job.ts"
   },
   "dependencies": {
     "@bee/core": "workspace:*",
