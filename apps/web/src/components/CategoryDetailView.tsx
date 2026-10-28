@@ -345,7 +345,12 @@ export function CategoryDetailView(props: { detail: CategoryDetail }) {
       <section className="cd-wide" aria-labelledby="cd-news-title">
         <div className="cd-section-head">
           <h2 id="cd-news-title">重大新闻</h2>
-          <span className="cd-section-meta">日报聚合</span>
+          <div className="cd-section-links">
+            <span className="cd-section-meta">日报聚合</span>
+            <Link className="cd-section-more" href={`/c/${detail.code}/archive?kind=news_digest`}>
+              查看全部 →
+            </Link>
+          </div>
         </div>
         <ContentList items={detail.contents.news_digest} empty="重大新闻：待发布。" label="日报" />
       </section>
@@ -353,7 +358,12 @@ export function CategoryDetailView(props: { detail: CategoryDetail }) {
       <section className="cd-wide" aria-labelledby="cd-analysis-title">
         <div className="cd-section-head">
           <h2 id="cd-analysis-title">行业分析</h2>
-          <span className="cd-section-meta">每日趋势</span>
+          <div className="cd-section-links">
+            <span className="cd-section-meta">每日趋势</span>
+            <Link className="cd-section-more" href={`/c/${detail.code}/archive?kind=analysis`}>
+              查看全部 →
+            </Link>
+          </div>
         </div>
         <ContentList items={detail.contents.analysis} empty="行业分析：待发布。" label="分析" />
       </section>
@@ -361,7 +371,12 @@ export function CategoryDetailView(props: { detail: CategoryDetail }) {
       <section className="cd-wide" aria-labelledby="cd-forecast-list-title">
         <div className="cd-section-head">
           <h2 id="cd-forecast-list-title">预测研报</h2>
-          <span className="cd-section-meta">未来区间</span>
+          <div className="cd-section-links">
+            <span className="cd-section-meta">未来区间</span>
+            <Link className="cd-section-more" href={`/c/${detail.code}/archive?kind=forecast`}>
+              查看全部 →
+            </Link>
+          </div>
         </div>
         <ContentList items={detail.contents.forecast} empty="预测研报：待发布。" label="预测" />
       </section>

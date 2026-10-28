@@ -468,6 +468,25 @@
   white-space: nowrap;
 }
 
+.cd-section-links {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  white-space: nowrap;
+}
+
+.cd-section-more {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-signal-deep);
+  text-decoration: none;
+}
+
+.cd-section-more:hover,
+.cd-section-more:focus-visible {
+  text-decoration: underline;
+}
+
 /* 图表 */
 
 .cd-chart-head {
@@ -1122,6 +1141,147 @@
   text-decoration: underline;
 }
 
+/* ---------- 历史内容归档 ---------- */
+
+.archive-head {
+  padding: var(--space-6);
+  background: var(--color-surface-raised);
+  border: var(--hairline) solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+}
+
+.archive-head h1 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: var(--display-md);
+  letter-spacing: var(--tracking-display);
+  color: var(--color-ink);
+}
+
+.archive-head-sub {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  letter-spacing: var(--tracking-label);
+  color: var(--color-muted);
+}
+
+.archive-head-meta {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.archive-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+}
+
+.archive-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-ink-2);
+  text-decoration: none;
+  background: var(--color-surface);
+  border: var(--hairline) solid var(--color-line);
+  border-radius: var(--radius-xs);
+}
+
+.archive-tab:hover,
+.archive-tab:focus-visible {
+  border-color: var(--color-signal-deep);
+}
+
+.archive-tab.active {
+  color: var(--color-signal-ink);
+  background: var(--color-signal-deep);
+  border-color: var(--color-signal-deep);
+}
+
+.archive-tab-count {
+  font-size: var(--text-2xs);
+  color: var(--color-faint);
+}
+
+.archive-tab.active .archive-tab-count {
+  color: inherit;
+}
+
+.archive-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.archive-item {
+  min-width: 0;
+}
+
+.archive-item-link {
+  display: block;
+  padding: var(--space-4);
+  color: var(--color-ink);
+  text-decoration: none;
+  background: var(--color-surface);
+  border: var(--hairline) solid var(--color-line);
+  border-radius: var(--radius-xs);
+  overflow-wrap: anywhere;
+}
+
+.archive-item-link:hover,
+.archive-item-link:focus-visible {
+  border-color: var(--color-signal-deep);
+}
+
+.archive-date {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-faint);
+}
+
+.archive-title {
+  margin: var(--space-1) 0;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+  color: var(--color-ink);
+}
+
+.archive-summary {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--color-muted);
+}
+
+.archive-read {
+  display: block;
+  padding-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-signal-deep);
+}
+
+.archive-empty {
+  padding: var(--space-6) 0;
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
 /* ---------- 响应式 ---------- */
 
 @media (max-width: 1180px) {
@@ -1182,6 +1342,7 @@
   .cd-chart-card,
   .cd-side-card,
   .cd-wide,
+  .archive-head,
   .content-page {
     padding: var(--space-4);
   }

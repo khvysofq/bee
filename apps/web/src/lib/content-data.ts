@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { and, desc, eq, type SQL } from 'drizzle-orm';
+import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { v4, type BeeDb } from '@bee/db';
 
@@ -98,6 +98,78 @@ export async function listContent(
     .limit(limit);
 
   return rows.map(toSummary);
+}
+
+export interface CategoryRef {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+}
+
+/** 按品类编码读取 active 品类；不存在时返回 null（页面据此 404）。 */
+export async function getCategoryByCode(
+  database: BeeDb,
+  code: string,
+): Promise<CategoryRef | null> {
+  const [row] = await database
+    .select({
+      id: v4.category.id,
+      code: v4.category.code,
+      name: v4.category.nameCn,
+      description: v4.category.description,
+    })
+    .from(v4.category)
+    .where(and(eq(v4.category.code, code), eq(v4.category.status, 'active')))
+    .limit(1);
+  return row ?? null;
+}
+
+/** 品类历史内容归档：只取公开已发布的单一种类，按日期倒序。 */
+export async function listCategoryContents(
+  database: BeeDb,
+  categoryId: string,
+  kind: string,
+  limit = 200,
+): Promise<ContentSummary[]> {
+  const capped = Math.min(Math.max(limit, 1), 200);
+  const rows = await database
+    .select(summaryShape)
+    .from(v4.content)
+    .innerJoin(v4.category, eq(v4.category.id, v4.content.categoryId))
+    .leftJoin(v4.region, eq(v4.region.id, v4.content.regionId))
+    .where(
+      and(
+        eq(v4.content.categoryId, categoryId),
+        eq(v4.content.kind, kind),
+        eq(v4.content.visibility, 'public'),
+        eq(v4.content.status, 'published'),
+      ),
+    )
+    .orderBy(desc(v4.content.contentDate), desc(v4.content.createdAt))
+    .limit(capped);
+
+  return rows.map(toSummary);
+}
+
+/** 归档 tab 的总数：与列表同样只统计公开已发布内容。 */
+export async function countCategoryContents(
+  database: BeeDb,
+  categoryId: string,
+  kind: string,
+): Promise<number> {
+  const [row] = await database
+    .select({ count: sql<number>`count(*)::int` })
+    .from(v4.content)
+    .where(
+      and(
+        eq(v4.content.categoryId, categoryId),
+        eq(v4.content.kind, kind),
+        eq(v4.content.visibility, 'public'),
+        eq(v4.content.status, 'published'),
+      ),
+    );
+  return row?.count ?? 0;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
